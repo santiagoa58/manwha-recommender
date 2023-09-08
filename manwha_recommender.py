@@ -1,4 +1,3 @@
-# Importing necessary libraries
 import pandas as pd
 import argparse
 from sklearn.feature_extraction.text import TfidfVectorizer
