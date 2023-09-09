@@ -38,7 +38,7 @@ The Manwha Recommender System is a command-line tool that recommends Manwha base
 Before using the recommender, you need to build the model.
 
 ```bash
-python -m src.utils.build_recommender
+python -m src.utils.build
 ```
 
 This will preprocess the data, train the model, and serialize it for later use.
