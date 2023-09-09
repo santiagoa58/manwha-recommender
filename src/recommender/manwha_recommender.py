@@ -6,9 +6,47 @@ from sklearn.neighbors import NearestNeighbors
 from scipy.sparse import hstack
 import json
 import difflib
+from src.utils.constants import MANWHA_NOT_FOUND
 
-MANWHA_NOT_FOUND = "The manhwa you entered is not in our database."
 MODEL_PATH = "models/manwha_recommender.pkl"
+
+
+def get_similarity_ratio(target: str, source: str):
+    """
+    Returns the similarity ratio between two strings.
+    """
+    return difflib.SequenceMatcher(
+        None, target.lower().replace(" ", ""), source.lower().replace(" ", "")
+    ).ratio()
+
+
+def get_close_matches(target: str, sources: list[str], limit=1):
+    """
+    Returns a list of tuples containing the name and similarity ratio of the most similar names.
+
+    Example:
+        >>> get_close_matches("solo leveln", ["solo leveling", "tower of god", "the god of high school", "solo leveling 3", "nano machine", "solo leveling 2",], limit=1)
+        [('solo leveling', 0.93333)]
+
+    Args:
+        target (str): The target name.
+        sources (list[str]): A list of names to compare the target name to.
+        limit (int, optional): The number of similar names to return. Defaults to 1.
+
+    Returns:
+        list[tuple[str, float]]: A list of tuples containing the name and similarity ratio of the most similar names.
+    """
+    similarities = [
+        (
+            name,
+            get_similarity_ratio(target, name),
+        )
+        for name in sources
+    ]
+
+    # Sort by similarity and pick the most similar name
+    sorted_similarities = sorted(similarities, key=lambda x: x[1], reverse=True)
+    return [(name, similarity) for name, similarity in sorted_similarities[:limit]]
 
 
 class _ManwhaRecommender:
@@ -65,51 +103,51 @@ class _ManwhaRecommender:
         model = self._build_knn_model(combined_features_matrix)
         return model, combined_features_matrix, scaled_manwhas_df
 
-    def get_target_manwha(self, target_manhwa):
-        # Preprocess the target name
-        processed_target = target_manhwa.lower().replace(" ", "")
-
-        # Calculate similarity for each name in the DataFrame
-        similarities = [
-            (
-                name,
-                difflib.SequenceMatcher(
-                    None, processed_target, name.lower().replace(" ", "")
-                ).ratio(),
-            )
-            for name in self._manwhas_df["name"].tolist()
-        ]
-
-        # Sort by similarity and pick the most similar name
-        most_similar_name, highest_similarity = sorted(
-            similarities, key=lambda x: x[1], reverse=True
+    def get_target_manwha(self, target_manhwa) -> tuple[int, str]:
+        most_similar_name, highest_similarity = get_close_matches(
+            target_manhwa, self._manwhas_df["name"].tolist(), limit=1
         )[0]
 
-        # You can adjust the threshold (0.7 in this example) based on your requirements.
-        if highest_similarity > 0.7:
+        if highest_similarity > 0.70:
+            target_manwha_df = self._manwhas_df[
+                self._manwhas_df["name"] == most_similar_name
+            ]
             return (
-                self._manwhas_df[self._manwhas_df["name"] == most_similar_name].index[
-                    0
-                ],
+                target_manwha_df.index[0],
                 most_similar_name,
             )
 
-        raise IndexError("No close match found.")
+        raise IndexError(
+            f'Exact match for {target_manhwa} not found. The closest match is "{most_similar_name}" with a similarity ratio of {highest_similarity}'
+        )
 
-    def recommend(self, target_manhwa):
+    def recommend(self, input_manhwa_name):
         try:
-            target_index, most_similar_target_name = self.get_target_manwha(
-                target_manhwa
-            )
+            target_index, target_manwha = self.get_target_manwha(input_manhwa_name)
             _, indices = self._knn_model.kneighbors(
                 self._feature_matrix.tocsr()[target_index], n_neighbors=11
             )
             similar_manwhas_indices = indices.flatten()[1:]
-            similar_manwhas_names = self._manwhas_df.iloc[similar_manwhas_indices][
-                "name"
+            similar_manwhas = self._manwhas_df.iloc[similar_manwhas_indices]
+            # return only the name, alt_name, rating, tags, description, source, publisher, years, chapters, volumes, url and filter out the generated columns
+            similar_manwhas = similar_manwhas[
+                [
+                    "name",
+                    "altName",
+                    "rating",
+                    "tags",
+                    "description",
+                    "source",
+                    "publisher",
+                    "years",
+                    "chapters",
+                    "imageURL",
+                    "id",
+                ]
             ]
-            return similar_manwhas_names.tolist(), most_similar_target_name
-        except IndexError:
+            return similar_manwhas, target_manwha
+        except IndexError as e:
+            print(e)
             return MANWHA_NOT_FOUND
 
 
