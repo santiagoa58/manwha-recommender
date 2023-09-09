@@ -2,8 +2,7 @@ import json
 from typing import Dict
 from bs4 import BeautifulSoup
 import re
-
-UNKNOWN = "Unknown"
+from src.utils.constants import UNKNOWN
 
 
 def parse_number(str_number: str):
@@ -67,7 +66,11 @@ def extract_manwha_info(soup: BeautifulSoup):
         # ex: <h6 class='theme-font tooltip-alt'>Alt titles: Na Honjaman Level-Up, Only I Level Up</h6>
         manwha_alt_name_element = soup.select_one(".tooltip-alt")
         return (
-            clean_text(manwha_alt_name_element.text.replace("Alt title: ", ""))
+            clean_text(
+                manwha_alt_name_element.text.replace("Alt title: ", "").replace(
+                    "Alt titles: ", ""
+                )
+            )
             if manwha_alt_name_element
             else UNKNOWN
         )
