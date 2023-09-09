@@ -1,5 +1,7 @@
 # Manwha Recommender System
 
+https://github.com/santiagoa58/manwha-recommender/assets/24705975/233f8d29-2a20-4f14-8277-9d4bafe0cb59
+
 ## Overview
 
 The Manwha Recommender System is a command-line tool that recommends Manwha based on a given title. It uses a K-Nearest Neighbors model trained on TF-IDF vectors of Manwha descriptions and tags to find similar Manwhas.
@@ -62,3 +64,4 @@ Follow the prompts and enter the title of the Manwha you're interested in.
   - `recommender/`: Core recommender system code.
   - `utils/`: Utilities for building the recommender and other auxiliary functions.
 - `requirements.txt`: Project dependencies.
+
