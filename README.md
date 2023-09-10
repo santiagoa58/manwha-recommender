@@ -1,5 +1,8 @@
 # Manwha Recommender System
 
+<img width="1422" alt="Screenshot 2023-09-09 at 8 09 27 PM" src="https://github.com/santiagoa58/manwha-recommender/assets/24705975/789ffcca-59b6-4375-a7f4-8178cd3db98a">
+
+## Demo
 https://github.com/santiagoa58/manwha-recommender/assets/24705975/233f8d29-2a20-4f14-8277-9d4bafe0cb59
 
 ## Overview
