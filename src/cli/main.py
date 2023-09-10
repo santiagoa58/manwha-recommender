@@ -17,11 +17,19 @@ def print_manwha_info(manwha_name_df: DataFrame):
             if alt_name and alt_name != UNKNOWN
             else row["name"]
         )
+        chapters_and_volumes: dict = row["chapters"]
+        volumes = chapters_and_volumes["volumes"]
+        chapters = chapters_and_volumes["chapters"]
+        chapters = (
+            f"Chapters: {chapters_and_volumes['chapters']}, Volumes: {volumes}"
+            if volumes and volumes != UNKNOWN
+            else f"Chapters: {chapters}"
+        )
         print(f"{name}")
         print(f"\tRating: {row['rating']}")
         print(f"\tTags: {row['tags']}")
         print(f"\tYears Active: {row['years']}")
-        print(f"\tChapters: {row['chapters']}")
+        print(f"\t{chapters}")
         print("-" * 50)  # Just a separator for readability
 
 
