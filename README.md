@@ -41,13 +41,13 @@ The Manwha Recommender System is a command-line tool that recommends Manwha base
 
 ## Building the Model
 
-Before using the recommender, you need to build the model.
+Before using the recommender, you need to build the model and parse the data.
 
 ```bash
-python -m src.utils.build
+python -m scripts.build
 ```
 
-This will preprocess the data, train the model, and serialize it for later use.
+This will preprocess the data, train the model, and serialize it for later use and process all the raw data.
 
 ## Using the Recommender
 
@@ -68,4 +68,3 @@ Follow the prompts and enter the title of the Manwha you're interested in.
   - `recommender/`: Core recommender system code.
   - `utils/`: Utilities for building the recommender and other auxiliary functions.
 - `requirements.txt`: Project dependencies.
-
