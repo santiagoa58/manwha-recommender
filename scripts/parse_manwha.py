@@ -2,7 +2,7 @@ import json
 from typing import Dict
 from bs4 import BeautifulSoup
 import re
-from src.utils.constants import UNKNOWN
+from src.utils.constants import UNKNOWN, CLEANED_MANWHAS_PATH
 
 
 def parse_number(str_number: str):
@@ -182,10 +182,10 @@ def load_manwha():
 
 
 def write_manwha_to_file(manwhas):
-    with open("./data/cleanedManwhas.json", "w") as cleaned_manwha:
+    with open(CLEANED_MANWHAS_PATH, "w") as cleaned_manwha:
         print("Writing manwhas to cleanedManwhas.json...")
         json.dump(manwhas, cleaned_manwha, indent=2)
-    print("Finished writing manwhas to cleanedManwhas.json")
+    print(f"Finished writing manwhas to {CLEANED_MANWHAS_PATH}")
 
 
 def run():
