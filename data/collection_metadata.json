@@ -1,0 +1,15 @@
+{
+  "collection_date": "2025-10-23T16:34:37.508827",
+  "total_entries": 4500,
+  "source_counts": {
+    "anilist": 0,
+    "jikan": 0,
+    "mangaupdates": 0,
+    "animeplanet": 4621
+  },
+  "deduplication_stats": {
+    "total_raw_entries": 4621,
+    "merged_entries": 4500,
+    "duplicate_groups": 118
+  }
+}

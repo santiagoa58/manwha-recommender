@@ -1,0 +1,8 @@
+{
+  "weights": {
+    "content": 0.4,
+    "collaborative": 0.3,
+    "user_pref": 0.3
+  },
+  "n_entries": 4621
+}
