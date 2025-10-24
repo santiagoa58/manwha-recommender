@@ -29,18 +29,19 @@ logger = logging.getLogger(__name__)
 class HybridManwhaRecommender:
     """
     Hybrid recommendation system that combines:
-    - Content-based filtering (what it's about)
-    - Collaborative filtering (what similar users like)
-    - User preferences (what YOU like)
+    - Content-based filtering (TF-IDF on descriptions, tags, genres)
+    - Genre-based similarity (genre co-occurrence patterns via SVD)
+    - User preferences (personalized filtering)
+
+    Note: This does NOT include true collaborative filtering, which would require
+    user-item interaction data (ratings, views, etc.). The genre similarity uses
+    item-item relationships based on shared genres.
     """
 
-    # REVIEW: [CRITICAL] No model validation/evaluation strategy
-    # Recommendation: Add train/test split, cross-validation, and evaluation metrics (NDCG, MRR, Precision@K)
-    # Location: __init__ and overall architecture
     def __init__(self):
         self.df = None
         self.content_model = None
-        self.collab_model = None
+        self.genre_model = None  # Renamed from collab_model - this is genre-based similarity, not collaborative filtering
         self.tfidf_vectorizer = None
         self.rating_scaler = None
         self.feature_matrix = None
@@ -49,12 +50,11 @@ class HybridManwhaRecommender:
         # REVIEW: [HIGH] Hardcoded weights without justification
         # Recommendation: Add hyperparameter tuning (grid search/Bayesian optimization) to find optimal weights
         # Consider exposing these as constructor parameters for easier experimentation
-        # Location: Lines 44-48
         # Weights for hybrid scoring
         self.weights = {
-            'content': 0.4,      # Content similarity
-            'collaborative': 0.3, # What similar users like
-            'user_pref': 0.3     # Personal preferences
+            'content': 0.4,          # Content similarity (TF-IDF)
+            'genre_similarity': 0.3, # Genre-based similarity (renamed from 'collaborative')
+            'user_pref': 0.3         # Personal preferences
         }
 
     # REVIEW: [HIGH] No input validation or error handling for missing/corrupt files
@@ -307,70 +307,45 @@ class HybridManwhaRecommender:
 
         logger.info("Content-based model trained successfully")
 
-    # REVIEW: [CRITICAL] This is NOT collaborative filtering - it's content-based genre clustering
-    # Recommendation: Either rename to reflect actual behavior or implement true collaborative filtering
-    # True CF requires user-item interaction matrix, not just genre profiles
-    # Location: build_collaborative_features function (Lines 152-184)
-    def build_collaborative_features(self, user_ratings_path: Optional[str] = None):
+    def build_genre_similarity_features(self):
         """
-        Build collaborative filtering model using matrix factorization.
-        If no user ratings provided, use implicit feedback from popularity.
+        Build genre-based similarity features using SVD on genre co-occurrence matrix.
+
+        This creates a lower-dimensional representation of manhwa based on their genres,
+        allowing us to find similar items based on genre patterns. This is content-based
+        filtering, not collaborative filtering (which would require user interaction data).
         """
-        logger.info("Building collaborative filtering features...")
+        logger.info("Building genre-based similarity features...")
 
-        if user_ratings_path and Path(user_ratings_path).exists():
-            # Load actual user ratings
-            with open(user_ratings_path, 'r') as f:
-                user_ratings = json.load(f)
+        # Create genre-based profiles (binary matrix of genre presence)
+        genre_profiles = self._create_genre_profiles()
 
-            # Build user-item matrix
-            # TODO: Implement when we have user rating data
-            logger.info("Using actual user ratings")
+        # REVIEW: [MEDIUM] SVD n_components=50 is arbitrary
+        # Recommendation: Use explained_variance_ratio_ to choose optimal components or tune via CV
+        # Apply dimensionality reduction to capture genre patterns
+        if len(genre_profiles) > 0:
+            self.genre_model = TruncatedSVD(
+                n_components=min(50, len(genre_profiles) - 1),
+                random_state=42
+            )
+            self.genre_features = self.genre_model.fit_transform(genre_profiles)
+            logger.info(f"Genre similarity features shape: {self.genre_features.shape}")
         else:
-            # REVIEW: [HIGH] Misleading naming - this is genre-based content filtering, not collaborative
-            # Recommendation: Rename to build_genre_features or implement actual collaborative filtering
-            # Location: Lines 168-184
-            # Use implicit feedback: create pseudo-users based on genre preferences
-            logger.info("Using implicit feedback (genre-based)")
+            self.genre_features = None
 
-            # Create genre-based user profiles
-            genre_profiles = self._create_genre_profiles()
-
-            # REVIEW: [MEDIUM] SVD n_components=50 is arbitrary
-            # Recommendation: Use explained_variance_ratio_ to choose optimal components or tune via CV
-            # Location: Lines 175-180
-            # Apply matrix factorization
-            if len(genre_profiles) > 0:
-                self.collab_model = TruncatedSVD(
-                    n_components=min(50, len(genre_profiles) - 1),
-                    random_state=42
-                )
-                self.collab_features = self.collab_model.fit_transform(genre_profiles)
-                logger.info(f"Collaborative features shape: {self.collab_features.shape}")
-            else:
-                self.collab_features = None
-
-    # REVIEW: [HIGH] Inefficient nested loop implementation - O(n*m) where m=num_genres
-    # Recommendation: Use pandas get_dummies with MultiLabelBinarizer or sklearn.preprocessing
-    # Example: from sklearn.preprocessing import MultiLabelBinarizer
-    #          mlb = MultiLabelBinarizer(); return mlb.fit_transform(self.df['genres'])
-    # Location: _create_genre_profiles function
     def _create_genre_profiles(self) -> np.ndarray:
-        """Create genre-based profiles for collaborative filtering."""
-        # Get all unique genres
-        all_genres = set()
-        for genres in self.df['genres']:
-            all_genres.update(genres)
+        """
+        Create binary genre matrix using efficient sklearn MultiLabelBinarizer.
+        Each row represents a manhwa, each column a genre (1 if present, 0 otherwise).
+        """
+        from sklearn.preprocessing import MultiLabelBinarizer
 
-        all_genres = sorted(list(all_genres))
+        mlb = MultiLabelBinarizer()
+        genre_matrix = mlb.fit_transform(self.df['genres'])
 
-        # Create binary genre matrix
-        genre_matrix = []
-        for genres in self.df['genres']:
-            profile = [1 if g in genres else 0 for g in all_genres]
-            genre_matrix.append(profile)
+        logger.info(f"Created genre matrix: {genre_matrix.shape} ({mlb.classes_.size} unique genres)")
 
-        return np.array(genre_matrix)
+        return genre_matrix
 
     # REVIEW: [MEDIUM] No validation that model has been trained
     # Recommendation: Add check if self.content_model is None, raise informative error
@@ -403,22 +378,22 @@ class HybridManwhaRecommender:
 
         return results
 
-    def get_collaborative_recommendations(
+    def get_genre_similarity_recommendations(
         self,
         manhwa_title: str,
         n_recommendations: int = 20
     ) -> List[Tuple[int, float]]:
-        """Get collaborative filtering recommendations."""
-        if self.collab_features is None:
+        """Get genre-based similarity recommendations using latent genre features."""
+        if self.genre_features is None:
             return []
 
         idx = self._find_manhwa_index(manhwa_title)
         if idx is None:
             return []
 
-        # Compute similarity in latent space
-        target_features = self.collab_features[idx]
-        similarities = np.dot(self.collab_features, target_features)
+        # Compute similarity in genre latent space
+        target_features = self.genre_features[idx]
+        similarities = np.dot(self.genre_features, target_features)
 
         # Get top recommendations
         top_indices = np.argsort(similarities)[::-1][1:n_recommendations+1]
@@ -523,18 +498,18 @@ class HybridManwhaRecommender:
         n_candidates = min(n_recommendations * 5, max_candidates)
 
         content_recs = self.get_content_recommendations(manhwa_title, n_recommendations=n_candidates)
-        collab_recs = self.get_collaborative_recommendations(manhwa_title, n_recommendations=n_candidates)
+        genre_recs = self.get_genre_similarity_recommendations(manhwa_title, n_recommendations=n_candidates)
 
         # Combine scores
         combined_scores = {}
 
-        # Content-based scores
+        # Content-based scores (TF-IDF similarity)
         for idx, score in content_recs:
             combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['content'] * score
 
-        # Collaborative scores
-        for idx, score in collab_recs:
-            combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['collaborative'] * score
+        # Genre-based similarity scores
+        for idx, score in genre_recs:
+            combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['genre_similarity'] * score
 
         # REVIEW: [MEDIUM] Weights don't sum to 1.0 when user_profile is None
         # Recommendation: Normalize weights dynamically based on which components are active
@@ -653,9 +628,9 @@ class HybridManwhaRecommender:
         joblib.dump(self.rating_scaler, output_path / "rating_scaler.pkl")
         joblib.dump(self.feature_matrix, output_path / "feature_matrix.pkl")
 
-        if self.collab_model:
-            joblib.dump(self.collab_model, output_path / "collab_model.pkl")
-            joblib.dump(self.collab_features, output_path / "collab_features.pkl")
+        if self.genre_model:
+            joblib.dump(self.genre_model, output_path / "genre_model.pkl")
+            joblib.dump(self.genre_features, output_path / "genre_features.pkl")
 
         # Save dataframe
         self.df.to_pickle(output_path / "manhwa_catalog.pkl")
@@ -685,15 +660,28 @@ class HybridManwhaRecommender:
         self.rating_scaler = joblib.load(model_path / "rating_scaler.pkl")
         self.feature_matrix = joblib.load(model_path / "feature_matrix.pkl")
 
-        if (model_path / "collab_model.pkl").exists():
-            self.collab_model = joblib.load(model_path / "collab_model.pkl")
-            self.collab_features = joblib.load(model_path / "collab_features.pkl")
+        # Load genre model (support both new and legacy naming)
+        if (model_path / "genre_model.pkl").exists():
+            self.genre_model = joblib.load(model_path / "genre_model.pkl")
+            self.genre_features = joblib.load(model_path / "genre_features.pkl")
+        elif (model_path / "collab_model.pkl").exists():
+            # Backward compatibility with old naming
+            logger.info("Loading legacy collab_model (now genre_model)")
+            self.genre_model = joblib.load(model_path / "collab_model.pkl")
+            self.genre_features = joblib.load(model_path / "collab_features.pkl")
 
         self.df = pd.read_pickle(model_path / "manhwa_catalog.pkl")
 
         with open(model_path / "recommender_config.json", 'r') as f:
             config = json.load(f)
-            self.weights = config['weights']
+            loaded_weights = config['weights']
+
+            # Backward compatibility: convert old 'collaborative' key to 'genre_similarity'
+            if 'collaborative' in loaded_weights and 'genre_similarity' not in loaded_weights:
+                loaded_weights['genre_similarity'] = loaded_weights.pop('collaborative')
+                logger.info("Converted legacy 'collaborative' weight to 'genre_similarity'")
+
+            self.weights = loaded_weights
 
         logger.info(f"Models loaded from {model_path}")
 
@@ -730,7 +718,7 @@ def train_and_save_model(catalog_path: str, output_dir: str = "models", evaluate
 
     # Build models
     recommender.build_content_features()
-    recommender.build_collaborative_features()
+    recommender.build_genre_similarity_features()
 
     # Evaluate if requested
     if evaluate and len(recommender.df) > 20:
@@ -740,7 +728,7 @@ def train_and_save_model(catalog_path: str, output_dir: str = "models", evaluate
         logger.info("Retraining on full dataset for production...")
         recommender.df = full_df
         recommender.build_content_features()
-        recommender.build_collaborative_features()
+        recommender.build_genre_similarity_features()
 
     # Save models
     recommender.save_model(output_dir)

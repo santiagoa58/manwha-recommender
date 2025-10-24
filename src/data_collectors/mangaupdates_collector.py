@@ -87,20 +87,31 @@ class MangaUpdatesCollector:
 
             logger.info(f"Retrieved page {page} with {len(results)} entries (Total: {total_hits})")
 
-            # REVIEW: [CRITICAL] N+1 query problem - fetching details one by one
-            # Recommendation: Check if API supports batch requests for details
-            # Or use asyncio.gather() to parallelize the detail fetches
-            # Example: tasks = [self.get_series_details(id) for id in series_ids]
-            #          results = await asyncio.gather(*tasks, return_exceptions=True)
-            # Location: Lines 88-95
-            # Get full details for each result
-            detailed_entries = []
-            for result in results:
-                series_id = result.get("record", {}).get("series_id")
-                if series_id:
-                    details = await self.get_series_details(series_id)
-                    if details:
-                        detailed_entries.append(details)
+            # Get full details for each result in parallel using asyncio.gather()
+            # This fixes N+1 query problem by fetching all details concurrently
+            series_ids = [
+                result.get("record", {}).get("series_id")
+                for result in results
+                if result.get("record", {}).get("series_id")
+            ]
+
+            if not series_ids:
+                return [], total_hits
+
+            # Fetch all details in parallel
+            tasks = [self.get_series_details(series_id) for series_id in series_ids]
+            detailed_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Filter out None results and exceptions
+            detailed_entries = [
+                entry for entry in detailed_results
+                if entry is not None and not isinstance(entry, Exception)
+            ]
+
+            # Log any errors
+            errors = [r for r in detailed_results if isinstance(r, Exception)]
+            if errors:
+                logger.warning(f"Failed to fetch {len(errors)}/{len(series_ids)} series details")
 
             return detailed_entries, total_hits
 

@@ -26,7 +26,7 @@ def trained_recommender(sample_catalog_file):
     recommender = HybridManwhaRecommender()
     recommender.prepare_data(str(sample_catalog_file))
     recommender.build_content_features()
-    recommender.build_collaborative_features()
+    recommender.build_genre_similarity_features()
     return recommender
 
 
@@ -143,23 +143,23 @@ class TestContentFeatureBuilding:
 
 
 @pytest.mark.unit
-class TestCollaborativeFiltering:
-    """Test collaborative filtering logic."""
+class TestGenreSimilarity:
+    """Test genre-based similarity logic."""
 
     def test_genre_profiles_created(self, trained_recommender):
-        """Test that genre profiles are created for collaborative filtering."""
+        """Test that genre features are created for similarity matching."""
         rec = trained_recommender
 
-        # With implicit feedback (no user ratings), should still have features
-        assert rec.collab_features is not None or rec.collab_model is None
+        # Should have genre features
+        assert rec.genre_features is not None or rec.genre_model is None
 
     def test_svd_dimensionality_reduction(self, trained_recommender):
         """Test that SVD reduces dimensionality appropriately."""
         rec = trained_recommender
 
-        if rec.collab_features is not None:
+        if rec.genre_features is not None:
             # Should have fewer components than original genres
-            assert rec.collab_features.shape[1] < len(rec.df)
+            assert rec.genre_features.shape[1] < len(rec.df)
 
 
 @pytest.mark.unit

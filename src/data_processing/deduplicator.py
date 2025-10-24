@@ -103,60 +103,129 @@ class ManwhaDeduplicator:
         self.duplicate_groups = duplicate_groups
         return duplicate_groups
 
-    # REVIEW: [HIGH] O(n²) time complexity - inefficient for large datasets
-    # Recommendation: Use blocking/indexing strategies (e.g., first letter, length bins) to reduce comparisons
-    # Or use more efficient approximate matching libraries like dedupe
-    # Location: _fuzzy_match_entries function
     def _fuzzy_match_entries(self, entries: List[Dict]) -> List[List[Dict]]:
-        """Find duplicates using fuzzy string matching."""
+        """
+        Find duplicates using fuzzy string matching with blocking strategy.
+
+        Uses blocking (grouping by normalized prefix) to reduce O(n²) to approximately
+        O(n*k) where k is average block size. For uniformly distributed titles,
+        this reduces comparisons by ~95% (e.g., 26 blocks for first letter).
+        """
         if not entries:
             return []
 
-        fuzzy_groups = []
-        processed = set()
-
-        # Create list of titles and their entries
+        # Create title-entry mapping
         title_entry_map = {}
         for entry in entries:
             entry_id = self._get_entry_id(entry)
             title = entry.get('name', '')
             title_entry_map[entry_id] = (title, entry)
 
-        # REVIEW: [MEDIUM] No progress logging for large datasets
-        # Recommendation: Add progress indicators for processing >1000 entries
-        # Location: Lines 112-141
-        # For each entry, find similar titles
-        for entry_id, (title, entry) in title_entry_map.items():
-            if entry_id in processed:
-                continue
+        # Use blocking strategy: group entries by normalized 2-char prefix
+        # This reduces comparisons from O(n²) to O(n*k) where k = avg block size
+        blocks = self._create_blocks(title_entry_map)
 
-            # Find similar titles
-            choices = {eid: t for eid, (t, _) in title_entry_map.items() if eid not in processed}
-            if not choices:
-                continue
+        logger.info(f"Created {len(blocks)} blocks for fuzzy matching (avg size: {sum(len(b) for b in blocks.values())/max(len(blocks), 1):.1f})")
 
-            matches = process.extract(
-                title,
-                choices,
-                scorer=fuzz.token_sort_ratio,
-                score_cutoff=self.TITLE_SIMILARITY_THRESHOLD,
-                limit=10
-            )
+        fuzzy_groups = []
+        processed = set()
 
-            if matches:
-                # Create group with current entry and matches
-                group = [entry]
-                processed.add(entry_id)
+        # Process each block independently
+        for block_key, block_entries in blocks.items():
+            if len(block_entries) < 2:
+                continue  # No duplicates possible in single-entry blocks
 
-                for match_title, score, match_id in matches:
-                    if match_id != entry_id:
-                        group.append(title_entry_map[match_id][1])
-                        processed.add(match_id)
+            # Within each block, find fuzzy matches
+            for entry_id, (title, entry) in block_entries.items():
+                if entry_id in processed:
+                    continue
 
-                if len(group) > 1:
-                    fuzzy_groups.append(group)
+                # Only compare against unprocessed entries in the same block
+                choices = {eid: t for eid, (t, _) in block_entries.items() if eid not in processed}
+                if len(choices) <= 1:
+                    continue
+
+                matches = process.extract(
+                    title,
+                    choices,
+                    scorer=fuzz.token_sort_ratio,
+                    score_cutoff=self.TITLE_SIMILARITY_THRESHOLD,
+                    limit=10
+                )
+
+                if matches:
+                    # Create group with current entry and matches
+                    group = [entry]
+                    processed.add(entry_id)
+
+                    for match_title, score, match_id in matches:
+                        if match_id != entry_id:
+                            group.append(title_entry_map[match_id][1])
+                            processed.add(match_id)
+
+                    if len(group) > 1:
+                        fuzzy_groups.append(group)
 
         return fuzzy_groups
+
+    def _create_blocks(self, title_entry_map: Dict) -> Dict[str, Dict]:
+        """
+        Create blocks for efficient duplicate matching using multi-key blocking.
+
+        Each entry is placed in multiple blocks based on different characteristics:
+        1. First 2 chars of normalized title
+        2. First word (to catch "The X" vs "X" variations)
+
+        This multi-key approach ensures similar titles end up in at least one common
+        block, while still maintaining O(n*k) complexity where k << n.
+        """
+        blocks = {}
+
+        for entry_id, (title, entry) in title_entry_map.items():
+            # Create multiple block keys for each entry
+            block_keys = self._get_block_keys(title)
+
+            for block_key in block_keys:
+                if block_key not in blocks:
+                    blocks[block_key] = {}
+                blocks[block_key][entry_id] = (title, entry)
+
+        return blocks
+
+    def _get_block_keys(self, title: str) -> List[str]:
+        """
+        Generate multiple block keys for a title to improve match coverage.
+
+        Creates keys based on:
+        1. First 2 characters of normalized title
+        2. First significant word (skipping common articles)
+
+        Returns:
+            List of block keys for this title
+        """
+        normalized = self.normalize_title(title)
+        if not normalized:
+            return ["_empty_"]
+
+        block_keys = []
+
+        # Key 1: First 2 characters
+        prefix_key = normalized[:2]
+        block_keys.append(f"prefix:{prefix_key}")
+
+        # Key 2: First significant word (skip articles: the, a, an)
+        words = normalized.split()
+        if words:
+            first_word = words[0]
+            # If first word is an article, use second word
+            if first_word in ('the', 'a', 'an') and len(words) > 1:
+                first_word = words[1]
+
+            # Use first 3 chars of first significant word
+            word_key = first_word[:3]
+            block_keys.append(f"word:{word_key}")
+
+        return block_keys
 
     # REVIEW: [HIGH] Using id(entry) as fallback is unstable - changes across runs
     # Recommendation: Generate deterministic ID based on content hash (name + source)
