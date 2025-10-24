@@ -27,20 +27,17 @@ class AniListCollector:
     def __init__(self):
         self.last_request_time = 0
 
-    # REVIEW: [HIGH] Using time.sleep() in async context blocks event loop
-    # Recommendation: Use asyncio.sleep() instead for proper async behavior
-    # Location: _rate_limit function (Lines 27-32)
-    def _rate_limit(self):
-        """Enforce rate limiting between requests."""
+    async def _rate_limit(self):
+        """Enforce rate limiting between requests using async sleep."""
         elapsed = time.time() - self.last_request_time
         if elapsed < self.RATE_LIMIT_DELAY:
-            time.sleep(self.RATE_LIMIT_DELAY - elapsed)
+            await asyncio.sleep(self.RATE_LIMIT_DELAY - elapsed)
         self.last_request_time = time.time()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def _query(self, query: str, variables: Dict) -> Dict:
         """Execute a GraphQL query with retry logic."""
-        self._rate_limit()
+        await self._rate_limit()
 
         # REVIEW: [MEDIUM] Creating new client for each request is inefficient
         # Recommendation: Reuse a single AsyncClient instance as class attribute

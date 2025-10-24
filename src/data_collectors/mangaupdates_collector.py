@@ -27,20 +27,17 @@ class MangaUpdatesCollector:
     def __init__(self):
         self.last_request_time = 0
 
-    # REVIEW: [HIGH] Same async sleep issue as other collectors
-    # Recommendation: Use asyncio.sleep()
-    # Location: _rate_limit function
-    def _rate_limit(self):
-        """Enforce rate limiting between requests."""
+    async def _rate_limit(self):
+        """Enforce rate limiting between requests using async sleep."""
         elapsed = time.time() - self.last_request_time
         if elapsed < self.RATE_LIMIT_DELAY:
-            time.sleep(self.RATE_LIMIT_DELAY - elapsed)
+            await asyncio.sleep(self.RATE_LIMIT_DELAY - elapsed)
         self.last_request_time = time.time()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def _get(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Execute a GET request with retry logic."""
-        self._rate_limit()
+        await self._rate_limit()
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
