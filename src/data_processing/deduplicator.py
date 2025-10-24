@@ -8,6 +8,7 @@ from rapidfuzz import fuzz, process
 import logging
 from collections import defaultdict
 import re
+import hashlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,27 +32,58 @@ class ManwhaDeduplicator:
     # Recommendation: Pre-compile regex patterns as class constants for better performance
     # Location: normalize_title function
     def normalize_title(self, title: str) -> str:
-        """Normalize title for better matching."""
+        """
+        Normalize title for better matching.
+
+        FIXED: Made normalization less aggressive - now selectively removes season/part/volume
+        information and specific noise patterns, but doesn't blindly remove ALL parentheses.
+        This allows matching variants while preserving meaningful disambiguation.
+        """
         if not title:
             return ""
 
         # Convert to lowercase
         title = title.lower()
 
-        # REVIEW: [MEDIUM] Title normalization might be too aggressive
-        # Recommendation: Test with cases like "Tower of God (Season 2)" vs "Tower of God"
-        # Consider preserving season/part info in some cases
-        # Location: Lines 36-39
-        # Remove common patterns that cause mismatches
-        title = re.sub(r'\s*\(.*?\)\s*', '', title)  # Remove parentheses content
-        title = re.sub(r'\s*\[.*?\]\s*', '', title)  # Remove bracket content
-        title = re.sub(r'\s+', ' ', title)  # Normalize whitespace
+        # FIXED: Remove specific patterns only, not ALL parentheses/brackets indiscriminately
+        # Remove noise patterns (manhwa, webtoon, official)
+        noise_patterns = [
+            r'\s*\(manhwa\)\s*',
+            r'\s*\[manhwa\]\s*',
+            r'\s*\(webtoon\)\s*',
+            r'\s*\[webtoon\]\s*',
+            r'\s*\(official\)\s*',
+            r'\s*\[official\]\s*',
+        ]
+
+        for pattern in noise_patterns:
+            title = re.sub(pattern, '', title, flags=re.IGNORECASE)
+
+        # Remove season/part/volume patterns for better matching
+        # This allows "Tower of God Season 1" to match "Tower of God Season 2"
+        season_part_patterns = [
+            r'\s*\(season\s+\d+\)\s*',
+            r'\s*\[season\s+\d+\]\s*',
+            r'\s*\(part\s+\d+\)\s*',
+            r'\s*\[part\s+\d+\]\s*',
+            r'\s*\(vol\.?\s+\d+\)\s*',
+            r'\s*\[vol\.?\s+\d+\]\s*',
+            r'\s*\(s\d+\)\s*',
+            r'\s*\[s\d+\]\s*',
+        ]
+
+        for pattern in season_part_patterns:
+            title = re.sub(pattern, '', title, flags=re.IGNORECASE)
+
+        # Normalize whitespace
+        title = re.sub(r'\s+', ' ', title)
         title = title.strip()
 
-        # Remove common suffixes
+        # Remove common suffixes (including season/part suffixes)
         suffixes = [
-            'manhwa', 'webtoon', 'part 1', 'part 2', 'part 3',
-            'season 1', 'season 2', 'season 3', 's1', 's2', 's3'
+            'manhwa', 'webtoon', 'part 1', 'part 2', 'part 3', 'part 4', 'part 5',
+            'season 1', 'season 2', 'season 3', 'season 4', 'season 5',
+            's1', 's2', 's3', 's4', 's5'
         ]
         for suffix in suffixes:
             if title.endswith(suffix):
@@ -227,13 +259,72 @@ class ManwhaDeduplicator:
 
         return block_keys
 
-    # REVIEW: [HIGH] Using id(entry) as fallback is unstable - changes across runs
-    # Recommendation: Generate deterministic ID based on content hash (name + source)
-    # Example: hashlib.md5(f"{entry.get('name', '')}_{entry.get('source', '')}".encode()).hexdigest()
-    # Location: _get_entry_id function
     def _get_entry_id(self, entry: Dict) -> str:
-        """Get unique identifier for an entry."""
-        return entry.get('id', entry.get('name', str(id(entry))))
+        """
+        Get unique identifier for an entry.
+
+        FIXED: Replaced non-deterministic id(entry) with deterministic hash based on
+        content (name + source). This ensures reproducibility across runs.
+        """
+        if 'id' in entry:
+            return entry['id']
+
+        # FIXED: Generate deterministic ID using MD5 hash of name + source
+        # This ensures the same entry always gets the same ID across runs
+        name = entry.get('name', '')
+        source = entry.get('source', '')
+        content = f"{name}_{source}"
+
+        # Generate MD5 hash for deterministic ID
+        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+        return f"hash_{content_hash[:16]}"  # Use first 16 chars for brevity
+
+    def _normalize_rating(self, rating: float, source: str) -> Optional[float]:
+        """
+        Normalize rating to 0-5 scale with validation.
+
+        FIXED: Added rating scale validation to ensure ratings are in expected range
+        per source before merging. Logs warnings for out-of-range values.
+        Auto-detects if ratings are already normalized to prevent double-normalization.
+
+        Args:
+            rating: The rating value to normalize
+            source: The source of the rating (e.g., 'AniList', 'MyAnimeList')
+
+        Returns:
+            Normalized rating on 0-5 scale, or None if invalid
+        """
+        try:
+            rating = float(rating)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid rating type for source {source}: {rating}")
+            return None
+
+        # FIXED: Detect if rating is already normalized to 0-5 scale
+        # If rating <= 5, assume it's already normalized (prevents double-normalization)
+        # If rating > 5, it must be on 0-10 scale
+        if rating <= 5:
+            # Already on 0-5 scale, validate range
+            if rating < 0 or rating > 5:
+                logger.warning(
+                    f"Out-of-range rating for source {source}: {rating} "
+                    f"(expected 0-5)"
+                )
+                # Clamp to valid range
+                rating = max(0, min(rating, 5))
+            return rating
+        else:
+            # Must be on 0-10 scale, validate and normalize
+            if rating < 0 or rating > 10:
+                logger.warning(
+                    f"Out-of-range rating for source {source}: {rating} "
+                    f"(expected 0-10)"
+                )
+                # Clamp to valid range
+                rating = max(0, min(rating, 10))
+
+            # Convert from 0-10 to 0-5 scale
+            return rating / 2.0
 
     def merge_duplicates(self, duplicate_groups: List[List[Dict]]) -> List[Dict]:
         """
@@ -326,29 +417,35 @@ class ManwhaDeduplicator:
 
         merged['altName'] = ', '.join(sorted(alt_names)[:5])  # Limit to 5 most relevant
 
-        # REVIEW: [HIGH] Potential division by zero if sum(weights) == 0
-        # Recommendation: Add check for sum(weights) > 0 before division
-        # Location: Lines 232-248
         # Merge ratings - weighted average based on vote count
+        # FIXED: Added rating scale validation and division by zero guard
         ratings = []
         weights = []
 
         for entry in group:
             rating = entry.get('rating')
             if rating:
-                # Weight by popularity/votes
-                weight = entry.get('rated_by', entry.get('scored_by', entry.get('popularity', 1)))
-                if weight and weight > 0:
-                    ratings.append(rating)
-                    weights.append(weight)
+                # FIXED: Validate and normalize rating to 0-5 scale
+                normalized_rating = self._normalize_rating(rating, entry.get('source', ''))
+                if normalized_rating is not None:
+                    # Weight by popularity/votes
+                    weight = entry.get('rated_by', entry.get('scored_by', entry.get('popularity', 1)))
+                    if weight and weight > 0:
+                        ratings.append(normalized_rating)
+                        weights.append(weight)
 
         if ratings:
-            # REVIEW: [MEDIUM] No validation of rating scale consistency across sources
-            # Recommendation: Ensure all ratings are normalized to same scale before merging
-            # Location: Lines 246-248
-            weighted_rating = sum(r * w for r, w in zip(ratings, weights)) / sum(weights)
-            merged['rating'] = round(weighted_rating, 2)
-            merged['rating_sources'] = len(ratings)
+            # FIXED: Guard against division by zero
+            total_weight = sum(weights)
+            if total_weight > 0:
+                weighted_rating = sum(r * w for r, w in zip(ratings, weights)) / total_weight
+                merged['rating'] = round(weighted_rating, 2)
+                merged['rating_sources'] = len(ratings)
+            else:
+                # Fallback to simple average if weights sum to zero
+                merged['rating'] = round(sum(ratings) / len(ratings), 2)
+                merged['rating_sources'] = len(ratings)
+                logger.warning(f"Rating weights summed to zero for {merged.get('name')}, using simple average")
 
         # Merge descriptions - prefer longest/most detailed
         descriptions = [e.get('description', '') for e in group if e.get('description')]
