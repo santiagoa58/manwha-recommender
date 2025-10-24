@@ -109,24 +109,149 @@ class HybridManwhaRecommender:
 
         return self.df
 
+    def create_evaluation_split(self, test_ratio: float = 0.2, random_state: int = 42) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Split data into train and test sets for evaluation.
+
+        Args:
+            test_ratio: Proportion of data to use for testing (default: 0.2)
+            random_state: Random seed for reproducibility
+
+        Returns:
+            Tuple of (train_df, test_df)
+        """
+        if self.df is None:
+            raise ValueError("Data not loaded. Call prepare_data() first.")
+
+        # Shuffle and split
+        shuffled_df = self.df.sample(frac=1, random_state=random_state).reset_index(drop=True)
+        split_idx = int(len(shuffled_df) * (1 - test_ratio))
+
+        train_df = shuffled_df.iloc[:split_idx].copy()
+        test_df = shuffled_df.iloc[split_idx:].copy()
+
+        logger.info(f"Created train/test split: {len(train_df)} train, {len(test_df)} test")
+
+        return train_df, test_df
+
+    def evaluate_recommendations(self, test_df: pd.DataFrame, k: int = 10) -> Dict[str, float]:
+        """
+        Evaluate recommendation quality using standard metrics.
+
+        For each manhwa in test set, generate recommendations and measure:
+        - Precision@K: How many of top K recs share genres with the test item
+        - Recall@K: Of all items that share genres, how many are in top K
+        - NDCG@K: Normalized Discounted Cumulative Gain
+        - MRR: Mean Reciprocal Rank
+        - Hit Rate@K: Percentage where at least 1 relevant item in top K
+
+        Args:
+            test_df: Test set dataframe
+            k: Number of recommendations to evaluate
+
+        Returns:
+            Dictionary of metric scores
+        """
+        if self.content_model is None:
+            raise ValueError("Model not trained. Call build_content_features() first.")
+
+        precision_scores = []
+        recall_scores = []
+        ndcg_scores = []
+        mrr_scores = []
+        hits = 0
+
+        logger.info(f"Evaluating on {len(test_df)} test items with K={k}...")
+
+        for idx, row in test_df.iterrows():
+            test_title = row['name']
+            test_genres = set(row['genres']) if isinstance(row['genres'], list) else set()
+
+            # Skip if test item not in training data or has no genres
+            if test_title not in self.df['name'].values or len(test_genres) == 0:
+                continue
+
+            try:
+                # Get recommendations
+                recs = self.recommend(test_title, n_recommendations=k)
+
+                # Calculate relevance: items that share at least one genre
+                relevant_items = []
+                ranks = []
+                dcg = 0.0
+
+                for rank, rec in enumerate(recs, 1):
+                    rec_genres = set(rec['genres']) if isinstance(rec['genres'], list) else set()
+                    is_relevant = len(test_genres & rec_genres) > 0
+
+                    if is_relevant:
+                        relevant_items.append(rec)
+                        if len(ranks) == 0:  # First relevant item
+                            mrr_scores.append(1.0 / rank)
+                        ranks.append(rank)
+
+                        # NDCG: relevance score is Jaccard similarity of genres
+                        relevance = len(test_genres & rec_genres) / len(test_genres | rec_genres)
+                        dcg += relevance / np.log2(rank + 1)
+
+                # Precision@K
+                precision = len(relevant_items) / k if k > 0 else 0
+                precision_scores.append(precision)
+
+                # Recall@K (of all items in training that share genres, how many in top K)
+                all_relevant = self.df[
+                    self.df.apply(
+                        lambda x: len(test_genres & set(x['genres'] if isinstance(x['genres'], list) else [])) > 0,
+                        axis=1
+                    ) & (self.df['name'] != test_title)
+                ]
+                recall = len(relevant_items) / len(all_relevant) if len(all_relevant) > 0 else 0
+                recall_scores.append(recall)
+
+                # NDCG@K - normalize by ideal DCG
+                ideal_dcg = sum(1.0 / np.log2(i + 2) for i in range(min(k, len(all_relevant))))
+                ndcg = dcg / ideal_dcg if ideal_dcg > 0 else 0
+                ndcg_scores.append(ndcg)
+
+                # Hit rate
+                if len(relevant_items) > 0:
+                    hits += 1
+
+            except Exception as e:
+                logger.warning(f"Error evaluating {test_title}: {e}")
+                continue
+
+        # Calculate final metrics
+        metrics = {
+            'precision@k': np.mean(precision_scores) if precision_scores else 0.0,
+            'recall@k': np.mean(recall_scores) if recall_scores else 0.0,
+            'ndcg@k': np.mean(ndcg_scores) if ndcg_scores else 0.0,
+            'mrr': np.mean(mrr_scores) if mrr_scores else 0.0,
+            'hit_rate@k': hits / len(test_df) if len(test_df) > 0 else 0.0,
+            'k': k,
+            'n_test_items': len(test_df),
+            'n_evaluated': len(precision_scores)
+        }
+
+        logger.info(f"Evaluation Results (K={k}):")
+        logger.info(f"  Precision@{k}: {metrics['precision@k']:.4f}")
+        logger.info(f"  Recall@{k}: {metrics['recall@k']:.4f}")
+        logger.info(f"  NDCG@{k}: {metrics['ndcg@k']:.4f}")
+        logger.info(f"  MRR: {metrics['mrr']:.4f}")
+        logger.info(f"  Hit Rate@{k}: {metrics['hit_rate@k']:.4f}")
+
+        return metrics
+
     def build_content_features(self):
         """Build content-based features using TF-IDF and metadata."""
         logger.info("Building content-based features...")
 
-        # REVIEW: [CRITICAL] Using iterrows() is extremely slow - O(n) with high constant factor
-        # Recommendation: Use vectorized operations instead:
-        # text_features = (self.df['description'].fillna('') + ' ' +
-        #                  self.df['genres'].apply(lambda x: ' '.join(x)) + ' ' +
-        #                  self.df['tags'].apply(lambda x: ' '.join(x))).tolist()
-        # Location: Lines 101-107
-        # Combine text fields for TF-IDF
-        text_features = []
-        for idx, row in self.df.iterrows():
-            # Combine description, genres, and tags
-            text = row['description'] + ' '
-            text += ' '.join(row['genres']) + ' '
-            text += ' '.join(row['tags'])
-            text_features.append(text)
+        # Combine text fields for TF-IDF using vectorized operations (much faster than iterrows)
+        text_features = (
+            self.df['description'].fillna('') + ' ' +
+            self.df['genres'].apply(lambda x: ' '.join(x) if isinstance(x, list) else '') + ' ' +
+            self.df['tags'].apply(lambda x: ' '.join(x) if isinstance(x, list) else '')
+        ).tolist()
 
         # REVIEW: [HIGH] TF-IDF hyperparameters are not justified
         # Recommendation: Add grid search to tune max_features, min_df, max_df
@@ -573,8 +698,19 @@ class HybridManwhaRecommender:
         logger.info(f"Models loaded from {model_path}")
 
 
-def train_and_save_model(catalog_path: str, output_dir: str = "models"):
-    """Train and save recommendation models."""
+def train_and_save_model(catalog_path: str, output_dir: str = "models", evaluate: bool = True, test_ratio: float = 0.2):
+    """
+    Train and save recommendation models with optional evaluation.
+
+    Args:
+        catalog_path: Path to manhwa catalog JSON file
+        output_dir: Directory to save trained models
+        evaluate: Whether to evaluate the model on a held-out test set
+        test_ratio: Proportion of data to use for testing (only if evaluate=True)
+
+    Returns:
+        Tuple of (recommender, metrics) where metrics is None if evaluate=False
+    """
     logger.info("Training hybrid recommendation model...")
 
     recommender = HybridManwhaRecommender()
@@ -582,25 +718,66 @@ def train_and_save_model(catalog_path: str, output_dir: str = "models"):
     # Load data
     recommender.prepare_data(catalog_path)
 
+    # Create train/test split if evaluating
+    metrics = None
+    if evaluate and len(recommender.df) > 20:  # Need enough data for meaningful split
+        full_df = recommender.df.copy()
+        train_df, test_df = recommender.create_evaluation_split(test_ratio=test_ratio)
+
+        # Train on training set only
+        recommender.df = train_df
+        logger.info(f"Training on {len(train_df)} items, holding out {len(test_df)} for evaluation")
+
     # Build models
     recommender.build_content_features()
     recommender.build_collaborative_features()
 
+    # Evaluate if requested
+    if evaluate and len(recommender.df) > 20:
+        metrics = recommender.evaluate_recommendations(test_df, k=10)
+
+        # Retrain on full dataset for production
+        logger.info("Retraining on full dataset for production...")
+        recommender.df = full_df
+        recommender.build_content_features()
+        recommender.build_collaborative_features()
+
     # Save models
     recommender.save_model(output_dir)
 
+    # Save evaluation metrics if available
+    if metrics:
+        import json
+        metrics_path = Path(output_dir) / "evaluation_metrics.json"
+        with open(metrics_path, 'w') as f:
+            json.dump(metrics, f, indent=2)
+        logger.info(f"Evaluation metrics saved to {metrics_path}")
+
     logger.info("Training complete!")
 
-    return recommender
+    return recommender, metrics
 
 
 def main():
     """Test the hybrid recommender."""
     # Train on test data (use existing cleaned manwhas for now)
-    recommender = train_and_save_model(
+    recommender, metrics = train_and_save_model(
         catalog_path="data/cleanedManwhas.json",
-        output_dir="models"
+        output_dir="models",
+        evaluate=True
     )
+
+    if metrics:
+        print("\n" + "="*60)
+        print("EVALUATION METRICS")
+        print("="*60)
+        print(f"Precision@10: {metrics['precision@k']:.4f}")
+        print(f"Recall@10: {metrics['recall@k']:.4f}")
+        print(f"NDCG@10: {metrics['ndcg@k']:.4f}")
+        print(f"MRR: {metrics['mrr']:.4f}")
+        print(f"Hit Rate@10: {metrics['hit_rate@k']:.4f}")
+        print(f"Test items evaluated: {metrics['n_evaluated']}/{metrics['n_test_items']}")
+        print("="*60 + "\n")
 
     # Test recommendations
     print("\n" + "="*60)

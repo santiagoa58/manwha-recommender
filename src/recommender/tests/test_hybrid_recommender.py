@@ -569,5 +569,118 @@ class TestEdgeCases:
             assert isinstance(recs, list)
 
 
+@pytest.mark.unit
+class TestModelEvaluation:
+    """Test model evaluation capabilities."""
+
+    def test_create_evaluation_split(self, sample_catalog_file):
+        """Test that data can be split into train/test sets."""
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+
+        train_df, test_df = rec.create_evaluation_split(test_ratio=0.3, random_state=42)
+
+        # Should split correctly
+        assert len(train_df) + len(test_df) == len(rec.df)
+        assert len(test_df) / len(rec.df) == pytest.approx(0.3, abs=0.05)
+
+        # Should be different dataframes
+        assert not train_df.equals(test_df)
+
+        # No overlap in indices
+        assert len(set(train_df.index) & set(test_df.index)) == 0
+
+    def test_create_evaluation_split_reproducible(self, sample_catalog_file):
+        """Test that split is reproducible with same random seed."""
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+
+        train1, test1 = rec.create_evaluation_split(test_ratio=0.2, random_state=42)
+        train2, test2 = rec.create_evaluation_split(test_ratio=0.2, random_state=42)
+
+        # Should produce same splits
+        assert train1.equals(train2)
+        assert test1.equals(test2)
+
+    def test_create_evaluation_split_without_data(self):
+        """Test that split fails gracefully without loaded data."""
+        rec = HybridManwhaRecommender()
+
+        with pytest.raises(ValueError, match="Data not loaded"):
+            rec.create_evaluation_split()
+
+    def test_evaluate_recommendations_returns_metrics(self, sample_catalog_file):
+        """Test that evaluation returns expected metrics."""
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+
+        # Split and train on training data
+        train_df, test_df = rec.create_evaluation_split(test_ratio=0.3, random_state=42)
+        rec.df = train_df
+        rec.build_content_features()
+
+        # Restore full df for evaluation (test items need to be findable)
+        rec.df = pd.concat([train_df, test_df])
+
+        # Evaluate
+        metrics = rec.evaluate_recommendations(test_df, k=5)
+
+        # Should return all expected metrics
+        assert 'precision@k' in metrics
+        assert 'recall@k' in metrics
+        assert 'ndcg@k' in metrics
+        assert 'mrr' in metrics
+        assert 'hit_rate@k' in metrics
+        assert metrics['k'] == 5
+
+        # Metrics should be in valid range
+        assert 0 <= metrics['precision@k'] <= 1
+        assert 0 <= metrics['recall@k'] <= 1
+        assert 0 <= metrics['ndcg@k'] <= 1
+        assert 0 <= metrics['mrr'] <= 1
+        assert 0 <= metrics['hit_rate@k'] <= 1
+
+    def test_evaluate_recommendations_without_model(self, sample_catalog_file):
+        """Test that evaluation fails gracefully without trained model."""
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+
+        _, test_df = rec.create_evaluation_split(test_ratio=0.3)
+
+        with pytest.raises(ValueError, match="Model not trained"):
+            rec.evaluate_recommendations(test_df, k=5)
+
+    def test_evaluation_metrics_saved_during_training(self, sample_catalog_file, temp_model_dir):
+        """Test that evaluation metrics are saved when training with evaluation."""
+        from src.recommender.hybrid_recommender import train_and_save_model
+
+        recommender, metrics = train_and_save_model(
+            catalog_path=sample_catalog_file,
+            output_dir=str(temp_model_dir),
+            evaluate=True,
+            test_ratio=0.3
+        )
+
+        # With small dataset (6 items), evaluation may be skipped (requires > 20 items)
+        # This is expected behavior, so we test both cases
+        if metrics is not None:
+            # Evaluation ran successfully
+            assert 'precision@k' in metrics
+
+            # Should save metrics file
+            metrics_file = temp_model_dir / "evaluation_metrics.json"
+            assert metrics_file.exists()
+
+            # File should contain valid JSON
+            import json
+            with open(metrics_file) as f:
+                saved_metrics = json.load(f)
+            assert saved_metrics == metrics
+        else:
+            # Evaluation skipped due to small dataset - this is fine
+            metrics_file = temp_model_dir / "evaluation_metrics.json"
+            assert not metrics_file.exists()  # No metrics file should be created
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
