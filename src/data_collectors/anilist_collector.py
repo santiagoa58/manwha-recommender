@@ -15,6 +15,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# REVIEW: [MEDIUM] Rate limit constants not configurable
+# Recommendation: Accept rate_limit_delay as constructor parameter for flexibility
+# Location: Lines 21-22
 class AniListCollector:
     """Collects manhwa data from AniList GraphQL API."""
 
@@ -24,6 +27,9 @@ class AniListCollector:
     def __init__(self):
         self.last_request_time = 0
 
+    # REVIEW: [HIGH] Using time.sleep() in async context blocks event loop
+    # Recommendation: Use asyncio.sleep() instead for proper async behavior
+    # Location: _rate_limit function (Lines 27-32)
     def _rate_limit(self):
         """Enforce rate limiting between requests."""
         elapsed = time.time() - self.last_request_time
@@ -36,6 +42,10 @@ class AniListCollector:
         """Execute a GraphQL query with retry logic."""
         self._rate_limit()
 
+        # REVIEW: [MEDIUM] Creating new client for each request is inefficient
+        # Recommendation: Reuse a single AsyncClient instance as class attribute
+        # Example: self.client = httpx.AsyncClient() in __init__, close in __del__
+        # Location: Lines 39-51
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 self.BASE_URL,
@@ -44,6 +54,9 @@ class AniListCollector:
             response.raise_for_status()
             data = response.json()
 
+            # REVIEW: [MEDIUM] Generic Exception loses error context
+            # Recommendation: Create custom exception class for GraphQL errors
+            # Location: Lines 47-49
             if "errors" in data:
                 logger.error(f"GraphQL errors: {data['errors']}")
                 raise Exception(f"GraphQL errors: {data['errors']}")
@@ -161,6 +174,9 @@ class AniListCollector:
 
             return self._transform_entries(media_list), page_info
 
+        # REVIEW: [MEDIUM] Silent error handling loses context
+        # Recommendation: Re-raise exception or return error status to allow caller to handle
+        # Location: Lines 164-166
         except Exception as e:
             logger.error(f"Error fetching page {page}: {e}")
             return [], {}
@@ -171,6 +187,9 @@ class AniListCollector:
 
         for media in media_list:
             try:
+                # REVIEW: [LOW] Rating conversion could handle edge cases better
+                # Recommendation: Add validation for score range (0-100) before division
+                # Location: Lines 174-179
                 # Calculate rating (AniList uses 0-100 scale, convert to 0-5)
                 rating = None
                 if media.get("meanScore"):
@@ -215,6 +234,10 @@ class AniListCollector:
                     "mal_id": media.get("idMal"),
                     "name": primary_title,
                     "altName": alt_name_str,
+                    # REVIEW: [MEDIUM] HTML tag removal is too simplistic
+                    # Recommendation: Use html.unescape() or BeautifulSoup for proper HTML cleaning
+                    # This misses many tags like <b>, <u>, <a>, etc.
+                    # Location: Line 218
                     "description": media.get("description", "").replace("<br>", "\n").replace("<i>", "").replace("</i>", ""),
                     "rating": rating,
                     "popularity": media.get("popularity", 0),
@@ -239,6 +262,9 @@ class AniListCollector:
 
                 transformed.append(entry)
 
+            # REVIEW: [MEDIUM] Silent continue loses valuable data
+            # Recommendation: Log the full entry or save to error file for debugging
+            # Location: Lines 242-244
             except Exception as e:
                 logger.error(f"Error transforming entry {media.get('id')}: {e}")
                 continue

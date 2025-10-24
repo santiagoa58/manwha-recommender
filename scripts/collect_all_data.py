@@ -28,6 +28,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# REVIEW: [MEDIUM] Class does too much - violates Single Responsibility Principle
+# Recommendation: Split into separate classes for collection, persistence, and orchestration
+# Location: DataCollectionOrchestrator class
 class DataCollectionOrchestrator:
     """Orchestrates data collection from multiple sources."""
 
@@ -35,6 +38,9 @@ class DataCollectionOrchestrator:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
 
+        # REVIEW: [LOW] All collectors instantiated even if not used
+        # Recommendation: Use lazy initialization or dependency injection
+        # Location: Lines 38-41
         self.anilist_collector = AniListCollector()
         self.jikan_collector = JikanCollector()
         self.mangaupdates_collector = MangaUpdatesCollector()
@@ -139,6 +145,9 @@ class DataCollectionOrchestrator:
         }
 
         # Collect from each source
+        # REVIEW: [MEDIUM] Bare except catches all exceptions too broadly
+        # Recommendation: Catch specific exceptions (httpx.HTTPError, etc.) or re-raise critical ones
+        # Location: Lines 142-146
         if 'anilist' not in skip_sources:
             try:
                 results['anilist'] = await self.collect_from_anilist(max_pages=anilist_max_pages)
@@ -165,12 +174,18 @@ class DataCollectionOrchestrator:
 
         return results
 
+    # REVIEW: [MEDIUM] No rollback mechanism if process fails mid-way
+    # Recommendation: Use atomic writes (write to temp file, then rename)
+    # Location: deduplicate_and_merge function
     def deduplicate_and_merge(self, all_data: dict) -> list:
         """Deduplicate and merge data from all sources."""
         logger.info("\n" + "="*60)
         logger.info("DEDUPLICATING AND MERGING DATA")
         logger.info("="*60 + "\n")
 
+        # REVIEW: [LOW] No error handling if deduplication fails
+        # Recommendation: Wrap in try-except and save partial results
+        # Location: Lines 174-179
         merged_data = self.deduplicator.process_all_sources(
             anilist_data=all_data['anilist'],
             jikan_data=all_data['jikan'],
@@ -178,6 +193,9 @@ class DataCollectionOrchestrator:
             animeplanet_data=all_data['animeplanet']
         )
 
+        # REVIEW: [MEDIUM] No atomic write pattern - file corruption risk
+        # Recommendation: Write to temp file then rename: tempfile.NamedTemporaryFile()
+        # Location: Lines 182-184
         # Save merged catalog
         output_file = self.data_dir / "master_manhwa_catalog.json"
         with open(output_file, 'w', encoding='utf-8') as f:

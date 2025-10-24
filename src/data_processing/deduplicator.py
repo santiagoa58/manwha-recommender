@@ -13,6 +13,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# REVIEW: [MEDIUM] Thresholds are hardcoded without justification
+# Recommendation: Make these configurable parameters with documented rationale for default values
+# Location: Lines 19-21
 class ManwhaDeduplicator:
     """Deduplicates and merges manhwa entries from multiple data sources."""
 
@@ -24,6 +27,9 @@ class ManwhaDeduplicator:
         self.duplicate_groups = []
         self.merged_entries = []
 
+    # REVIEW: [LOW] Regex patterns compiled on every call
+    # Recommendation: Pre-compile regex patterns as class constants for better performance
+    # Location: normalize_title function
     def normalize_title(self, title: str) -> str:
         """Normalize title for better matching."""
         if not title:
@@ -32,6 +38,10 @@ class ManwhaDeduplicator:
         # Convert to lowercase
         title = title.lower()
 
+        # REVIEW: [MEDIUM] Title normalization might be too aggressive
+        # Recommendation: Test with cases like "Tower of God (Season 2)" vs "Tower of God"
+        # Consider preserving season/part info in some cases
+        # Location: Lines 36-39
         # Remove common patterns that cause mismatches
         title = re.sub(r'\s*\(.*?\)\s*', '', title)  # Remove parentheses content
         title = re.sub(r'\s*\[.*?\]\s*', '', title)  # Remove bracket content
@@ -93,6 +103,10 @@ class ManwhaDeduplicator:
         self.duplicate_groups = duplicate_groups
         return duplicate_groups
 
+    # REVIEW: [HIGH] O(n²) time complexity - inefficient for large datasets
+    # Recommendation: Use blocking/indexing strategies (e.g., first letter, length bins) to reduce comparisons
+    # Or use more efficient approximate matching libraries like dedupe
+    # Location: _fuzzy_match_entries function
     def _fuzzy_match_entries(self, entries: List[Dict]) -> List[List[Dict]]:
         """Find duplicates using fuzzy string matching."""
         if not entries:
@@ -108,6 +122,9 @@ class ManwhaDeduplicator:
             title = entry.get('name', '')
             title_entry_map[entry_id] = (title, entry)
 
+        # REVIEW: [MEDIUM] No progress logging for large datasets
+        # Recommendation: Add progress indicators for processing >1000 entries
+        # Location: Lines 112-141
         # For each entry, find similar titles
         for entry_id, (title, entry) in title_entry_map.items():
             if entry_id in processed:
@@ -141,6 +158,10 @@ class ManwhaDeduplicator:
 
         return fuzzy_groups
 
+    # REVIEW: [HIGH] Using id(entry) as fallback is unstable - changes across runs
+    # Recommendation: Generate deterministic ID based on content hash (name + source)
+    # Example: hashlib.md5(f"{entry.get('name', '')}_{entry.get('source', '')}".encode()).hexdigest()
+    # Location: _get_entry_id function
     def _get_entry_id(self, entry: Dict) -> str:
         """Get unique identifier for an entry."""
         return entry.get('id', entry.get('name', str(id(entry))))
@@ -169,9 +190,16 @@ class ManwhaDeduplicator:
         self.merged_entries = merged_entries
         return merged_entries
 
+    # REVIEW: [MEDIUM] Source priority is hardcoded in method
+    # Recommendation: Make source_priority a class constant or constructor parameter
+    # Document the rationale for this priority ordering
+    # Location: _merge_group function
     def _merge_group(self, group: List[Dict]) -> Dict:
         """Merge a group of duplicate entries into a single entry."""
 
+        # REVIEW: [LOW] No validation that group is non-empty
+        # Recommendation: Add assert len(group) > 0 or return None for empty groups
+        # Location: Lines 172-182
         # Source priority: MangaUpdates > AniList > MyAnimeList > Anime-Planet > Reddit
         source_priority = {
             'MangaUpdates': 4,
@@ -229,6 +257,9 @@ class ManwhaDeduplicator:
 
         merged['altName'] = ', '.join(sorted(alt_names)[:5])  # Limit to 5 most relevant
 
+        # REVIEW: [HIGH] Potential division by zero if sum(weights) == 0
+        # Recommendation: Add check for sum(weights) > 0 before division
+        # Location: Lines 232-248
         # Merge ratings - weighted average based on vote count
         ratings = []
         weights = []
@@ -243,6 +274,9 @@ class ManwhaDeduplicator:
                     weights.append(weight)
 
         if ratings:
+            # REVIEW: [MEDIUM] No validation of rating scale consistency across sources
+            # Recommendation: Ensure all ratings are normalized to same scale before merging
+            # Location: Lines 246-248
             weighted_rating = sum(r * w for r, w in zip(ratings, weights)) / sum(weights)
             merged['rating'] = round(weighted_rating, 2)
             merged['rating_sources'] = len(ratings)
@@ -299,6 +333,9 @@ class ManwhaDeduplicator:
 
         return merged
 
+    # REVIEW: [MEDIUM] Multiple passes over data - could be more efficient
+    # Recommendation: Consider streaming approach or single-pass algorithm for very large datasets
+    # Location: process_all_sources function
     def process_all_sources(
         self,
         anilist_data: List[Dict],
@@ -318,6 +355,9 @@ class ManwhaDeduplicator:
         Returns:
             List of deduplicated and merged entries
         """
+        # REVIEW: [LOW] No validation of input data types
+        # Recommendation: Validate that inputs are lists and contain dicts
+        # Location: Lines 321-326
         # Combine all entries
         all_entries = []
         all_entries.extend(anilist_data)

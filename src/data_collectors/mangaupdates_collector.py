@@ -15,6 +15,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# REVIEW: [HIGH] More code duplication - same issues as other collectors
+# Recommendation: Create BaseAPICollector class with shared functionality
+# Location: MangaUpdatesCollector class
 class MangaUpdatesCollector:
     """Collects manhwa data from MangaUpdates official API."""
 
@@ -24,6 +27,9 @@ class MangaUpdatesCollector:
     def __init__(self):
         self.last_request_time = 0
 
+    # REVIEW: [HIGH] Same async sleep issue as other collectors
+    # Recommendation: Use asyncio.sleep()
+    # Location: _rate_limit function
     def _rate_limit(self):
         """Enforce rate limiting between requests."""
         elapsed = time.time() - self.last_request_time
@@ -84,6 +90,12 @@ class MangaUpdatesCollector:
 
             logger.info(f"Retrieved page {page} with {len(results)} entries (Total: {total_hits})")
 
+            # REVIEW: [CRITICAL] N+1 query problem - fetching details one by one
+            # Recommendation: Check if API supports batch requests for details
+            # Or use asyncio.gather() to parallelize the detail fetches
+            # Example: tasks = [self.get_series_details(id) for id in series_ids]
+            #          results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Location: Lines 88-95
             # Get full details for each result
             detailed_entries = []
             for result in results:
@@ -120,6 +132,9 @@ class MangaUpdatesCollector:
     def _transform_entry(self, entry: Dict) -> Dict:
         """Transform MangaUpdates entry to unified schema."""
         try:
+            # REVIEW: [MEDIUM] No error handling for invalid float conversion
+            # Recommendation: Wrap float() in try-except
+            # Location: Lines 123-127
             # Calculate rating (MangaUpdates uses bayesian average 0-10, convert to 0-5)
             rating = None
             bayesian_rating = entry.get("bayesian_rating")

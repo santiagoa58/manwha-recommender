@@ -6,6 +6,9 @@ Advanced Hybrid Recommendation Engine combining multiple approaches:
 4. Demographic Filtering
 """
 
+# REVIEW: [MEDIUM] Logging configuration at module level
+# Recommendation: Move basicConfig to application entry point to avoid conflicts
+# Location: Lines 22-23
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -31,6 +34,9 @@ class HybridManwhaRecommender:
     - User preferences (what YOU like)
     """
 
+    # REVIEW: [CRITICAL] No model validation/evaluation strategy
+    # Recommendation: Add train/test split, cross-validation, and evaluation metrics (NDCG, MRR, Precision@K)
+    # Location: __init__ and overall architecture
     def __init__(self):
         self.df = None
         self.content_model = None
@@ -40,6 +46,10 @@ class HybridManwhaRecommender:
         self.feature_matrix = None
         self.user_preferences = {}
 
+        # REVIEW: [HIGH] Hardcoded weights without justification
+        # Recommendation: Add hyperparameter tuning (grid search/Bayesian optimization) to find optimal weights
+        # Consider exposing these as constructor parameters for easier experimentation
+        # Location: Lines 44-48
         # Weights for hybrid scoring
         self.weights = {
             'content': 0.4,      # Content similarity
@@ -47,8 +57,14 @@ class HybridManwhaRecommender:
             'user_pref': 0.3     # Personal preferences
         }
 
+    # REVIEW: [HIGH] No input validation or error handling for missing/corrupt files
+    # Recommendation: Add try-except with specific error messages, validate file exists and is valid JSON
+    # Location: prepare_data function
     def prepare_data(self, catalog_path: str) -> pd.DataFrame:
         """Load and prepare manhwa catalog data."""
+        # REVIEW: [CRITICAL] No validation of minimum data requirements
+        # Recommendation: Check for minimum number of entries, required columns before proceeding
+        # Location: Lines 50-94
         logger.info(f"Loading catalog from {catalog_path}")
 
         with open(catalog_path, 'r', encoding='utf-8') as f:
@@ -97,6 +113,12 @@ class HybridManwhaRecommender:
         """Build content-based features using TF-IDF and metadata."""
         logger.info("Building content-based features...")
 
+        # REVIEW: [CRITICAL] Using iterrows() is extremely slow - O(n) with high constant factor
+        # Recommendation: Use vectorized operations instead:
+        # text_features = (self.df['description'].fillna('') + ' ' +
+        #                  self.df['genres'].apply(lambda x: ' '.join(x)) + ' ' +
+        #                  self.df['tags'].apply(lambda x: ' '.join(x))).tolist()
+        # Location: Lines 101-107
         # Combine text fields for TF-IDF
         text_features = []
         for idx, row in self.df.iterrows():
@@ -106,6 +128,10 @@ class HybridManwhaRecommender:
             text += ' '.join(row['tags'])
             text_features.append(text)
 
+        # REVIEW: [HIGH] TF-IDF hyperparameters are not justified
+        # Recommendation: Add grid search to tune max_features, min_df, max_df
+        # Consider removing 'english' stop_words for non-English manhwa titles/descriptions
+        # Location: Lines 110-116
         # TF-IDF vectorization
         self.tfidf_vectorizer = TfidfVectorizer(
             max_features=5000,
@@ -124,6 +150,9 @@ class HybridManwhaRecommender:
             self.df[['rating']].values
         )
 
+        # REVIEW: [MEDIUM] Popularity scaler is not saved/reused
+        # Recommendation: Store popularity_scaler as instance variable for consistency in prediction
+        # Location: Lines 128-131
         # Normalize popularity
         popularity_scaler = MinMaxScaler()
         scaled_popularity = popularity_scaler.fit_transform(
@@ -139,6 +168,10 @@ class HybridManwhaRecommender:
 
         logger.info(f"Combined feature matrix shape: {self.feature_matrix.shape}")
 
+        # REVIEW: [MEDIUM] Using cosine distance but features aren't L2-normalized
+        # Recommendation: Normalize feature_matrix rows to unit length for true cosine similarity
+        # Or use normalized vectors: from sklearn.preprocessing import normalize
+        # Location: Lines 143-148
         # Train KNN model
         self.content_model = NearestNeighbors(
             n_neighbors=min(21, len(self.df)),  # Top 20 + self
@@ -149,6 +182,10 @@ class HybridManwhaRecommender:
 
         logger.info("Content-based model trained successfully")
 
+    # REVIEW: [CRITICAL] This is NOT collaborative filtering - it's content-based genre clustering
+    # Recommendation: Either rename to reflect actual behavior or implement true collaborative filtering
+    # True CF requires user-item interaction matrix, not just genre profiles
+    # Location: build_collaborative_features function (Lines 152-184)
     def build_collaborative_features(self, user_ratings_path: Optional[str] = None):
         """
         Build collaborative filtering model using matrix factorization.
@@ -165,12 +202,18 @@ class HybridManwhaRecommender:
             # TODO: Implement when we have user rating data
             logger.info("Using actual user ratings")
         else:
+            # REVIEW: [HIGH] Misleading naming - this is genre-based content filtering, not collaborative
+            # Recommendation: Rename to build_genre_features or implement actual collaborative filtering
+            # Location: Lines 168-184
             # Use implicit feedback: create pseudo-users based on genre preferences
             logger.info("Using implicit feedback (genre-based)")
 
             # Create genre-based user profiles
             genre_profiles = self._create_genre_profiles()
 
+            # REVIEW: [MEDIUM] SVD n_components=50 is arbitrary
+            # Recommendation: Use explained_variance_ratio_ to choose optimal components or tune via CV
+            # Location: Lines 175-180
             # Apply matrix factorization
             if len(genre_profiles) > 0:
                 self.collab_model = TruncatedSVD(
@@ -182,6 +225,11 @@ class HybridManwhaRecommender:
             else:
                 self.collab_features = None
 
+    # REVIEW: [HIGH] Inefficient nested loop implementation - O(n*m) where m=num_genres
+    # Recommendation: Use pandas get_dummies with MultiLabelBinarizer or sklearn.preprocessing
+    # Example: from sklearn.preprocessing import MultiLabelBinarizer
+    #          mlb = MultiLabelBinarizer(); return mlb.fit_transform(self.df['genres'])
+    # Location: _create_genre_profiles function
     def _create_genre_profiles(self) -> np.ndarray:
         """Create genre-based profiles for collaborative filtering."""
         # Get all unique genres
@@ -199,6 +247,9 @@ class HybridManwhaRecommender:
 
         return np.array(genre_matrix)
 
+    # REVIEW: [MEDIUM] No validation that model has been trained
+    # Recommendation: Add check if self.content_model is None, raise informative error
+    # Location: get_content_recommendations function
     def get_content_recommendations(
         self,
         manhwa_title: str,
@@ -254,6 +305,9 @@ class HybridManwhaRecommender:
 
         return results
 
+    # REVIEW: [HIGH] No bounds checking on manhwa_idx
+    # Recommendation: Add validation that manhwa_idx is within DataFrame bounds
+    # Location: get_user_preference_score function
     def get_user_preference_score(
         self,
         manhwa_idx: int,
@@ -268,6 +322,8 @@ class HybridManwhaRecommender:
         - min_rating: Minimum rating threshold
         - preferred_status: Preferred status (e.g., completed, ongoing)
         """
+        # REVIEW: [MEDIUM] Magic number 0.5 as base score - should be documented or configurable
+        # Location: Line 271
         score = 0.5  # Base score
 
         manhwa = self.df.iloc[manhwa_idx]
@@ -277,6 +333,9 @@ class HybridManwhaRecommender:
         disliked_genres = set(user_profile.get('disliked_genres', []))
         manhwa_genres = set(manhwa['genres'])
 
+        # REVIEW: [LOW] Magic weights (0.3, 0.2, 0.1) not documented or tuned
+        # Recommendation: Move to class constants with justification
+        # Location: Lines 283-300
         # Boost for liked genres
         overlap = len(manhwa_genres & liked_genres)
         if liked_genres:
@@ -303,6 +362,9 @@ class HybridManwhaRecommender:
 
         return score
 
+    # REVIEW: [HIGH] No error handling or logging when input manhwa not found
+    # Recommendation: Log warning with suggestions for similar titles
+    # Location: recommend function
     def recommend(
         self,
         manhwa_title: str,
@@ -322,6 +384,8 @@ class HybridManwhaRecommender:
         Returns:
             List of recommended manhwa with scores
         """
+        # REVIEW: [MEDIUM] Silent failure returns empty list - should log error
+        # Location: Lines 326-328
         # Find input manhwa index to exclude it from results
         input_idx = self._find_manhwa_index(manhwa_title)
         if input_idx is None:
@@ -347,6 +411,9 @@ class HybridManwhaRecommender:
         for idx, score in collab_recs:
             combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['collaborative'] * score
 
+        # REVIEW: [MEDIUM] Weights don't sum to 1.0 when user_profile is None
+        # Recommendation: Normalize weights dynamically based on which components are active
+        # Location: Lines 351-354
         # User preference scores
         if user_profile:
             for idx in combined_scores.keys():
@@ -413,8 +480,13 @@ class HybridManwhaRecommender:
 
         return filtered_scores
 
+    # REVIEW: [MEDIUM] Fuzzy matching computed fresh every time - no caching
+    # Recommendation: Cache fuzzy match results or pre-build index for common queries
+    # Location: _find_manhwa_index function
     def _find_manhwa_index(self, title: str) -> Optional[int]:
         """Find manhwa index by title with fuzzy matching."""
+        # REVIEW: [LOW] Import inside function - move to top of file
+        # Location: Line 418
         from rapidfuzz import fuzz, process
 
         # Exact match first
@@ -422,6 +494,9 @@ class HybridManwhaRecommender:
         if not exact_match.empty:
             return exact_match.index[0]
 
+        # REVIEW: [MEDIUM] Converting entire column to list on every call is wasteful
+        # Recommendation: Cache the titles list as instance variable
+        # Location: Line 426
         # Fuzzy match
         titles = self.df['name'].tolist()
         best_match = process.extractOne(
@@ -439,6 +514,9 @@ class HybridManwhaRecommender:
         logger.warning(f"No match found for '{title}'")
         return None
 
+    # REVIEW: [MEDIUM] No error handling for file I/O operations
+    # Recommendation: Wrap in try-except, validate write permissions before starting
+    # Location: save_model function
     def save_model(self, output_dir: str = "models"):
         """Save trained models and data."""
         output_path = Path(output_dir)
@@ -467,10 +545,16 @@ class HybridManwhaRecommender:
 
         logger.info(f"Models saved to {output_path}")
 
+    # REVIEW: [HIGH] No validation that files exist before loading
+    # Recommendation: Check file existence, add try-except with informative errors
+    # Location: load_model function
     def load_model(self, model_dir: str = "models"):
         """Load pre-trained models."""
         model_path = Path(model_dir)
 
+        # REVIEW: [MEDIUM] No version checking - models could be incompatible
+        # Recommendation: Save and validate model version/schema
+        # Location: Lines 474-489
         self.content_model = joblib.load(model_path / "content_model.pkl")
         self.tfidf_vectorizer = joblib.load(model_path / "tfidf_vectorizer.pkl")
         self.rating_scaler = joblib.load(model_path / "rating_scaler.pkl")

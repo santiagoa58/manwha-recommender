@@ -15,6 +15,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# REVIEW: [HIGH] Code duplication with AniListCollector
+# Recommendation: Extract common rate limiting and HTTP client logic to base class
+# Location: JikanCollector class
 class JikanCollector:
     """Collects manhwa data from Jikan (MyAnimeList) API."""
 
@@ -24,6 +27,9 @@ class JikanCollector:
     def __init__(self):
         self.last_request_time = 0
 
+    # REVIEW: [HIGH] Using time.sleep() in async context blocks event loop
+    # Recommendation: Use asyncio.sleep() instead
+    # Location: _rate_limit function
     def _rate_limit(self):
         """Enforce rate limiting between requests."""
         elapsed = time.time() - self.last_request_time
@@ -36,6 +42,9 @@ class JikanCollector:
         """Execute a GET request with retry logic."""
         self._rate_limit()
 
+        # REVIEW: [MEDIUM] Same client recreation issue as AniListCollector
+        # Recommendation: Reuse client instance
+        # Location: Lines 39-45
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 f"{self.BASE_URL}/{endpoint}",
@@ -107,7 +116,10 @@ class JikanCollector:
 
         for entry in entries:
             try:
-                # Calculate rating (MAL uses 0-10 scale, convert to 0-5)
+                # REVIEW: [LOW] No validation of score range
+            # Recommendation: Validate score is between 0-10 before conversion
+            # Location: Lines 110-113
+            # Calculate rating (MAL uses 0-10 scale, convert to 0-5)
                 rating = None
                 if entry.get("score"):
                     rating = round(entry["score"] / 2, 2)  # 10 -> 5.0
