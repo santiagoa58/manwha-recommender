@@ -57,8 +57,17 @@ class HybridManwhaRecommender:
         self.df = pd.DataFrame(data)
 
         # Handle missing values
-        self.df['description'] = self.df['description'].fillna('')
-        self.df['rating'] = self.df['rating'].fillna(self.df['rating'].median())
+        if 'description' not in self.df.columns:
+            self.df['description'] = ''
+        else:
+            self.df['description'] = self.df['description'].fillna('')
+
+        # Add rating if it doesn't exist
+        if 'rating' not in self.df.columns:
+            self.df['rating'] = 3.5  # Default median rating
+        else:
+            median_rating = self.df['rating'].median()
+            self.df['rating'] = self.df['rating'].fillna(median_rating if pd.notna(median_rating) else 3.5)
 
         # Add popularity if it doesn't exist
         if 'popularity' not in self.df.columns:
@@ -313,9 +322,19 @@ class HybridManwhaRecommender:
         Returns:
             List of recommended manhwa with scores
         """
+        # Find input manhwa index to exclude it from results
+        input_idx = self._find_manhwa_index(manhwa_title)
+        if input_idx is None:
+            return []
+
         # Get recommendations from each method
-        content_recs = self.get_content_recommendations(manhwa_title, n_recommendations=50)
-        collab_recs = self.get_collaborative_recommendations(manhwa_title, n_recommendations=50)
+        # Request more candidates than needed to account for filtering
+        # But not more than available in dataset
+        max_candidates = min(50, len(self.df) - 1)
+        n_candidates = min(n_recommendations * 5, max_candidates)
+
+        content_recs = self.get_content_recommendations(manhwa_title, n_recommendations=n_candidates)
+        collab_recs = self.get_collaborative_recommendations(manhwa_title, n_recommendations=n_candidates)
 
         # Combine scores
         combined_scores = {}
@@ -337,6 +356,10 @@ class HybridManwhaRecommender:
         # Apply filters
         if filters:
             combined_scores = self._apply_filters(combined_scores, filters)
+
+        # Remove input manhwa from results (don't recommend what user already specified)
+        if input_idx in combined_scores:
+            del combined_scores[input_idx]
 
         # Sort by combined score
         sorted_recs = sorted(
