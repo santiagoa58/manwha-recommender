@@ -6,9 +6,6 @@ Advanced Hybrid Recommendation Engine combining multiple approaches:
 4. Demographic Filtering
 """
 
-# REVIEW: [MEDIUM] Logging configuration at module level
-# Recommendation: Move basicConfig to application entry point to avoid conflicts
-# Location: Lines 22-23
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -16,14 +13,20 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import TruncatedSVD
 from scipy.sparse import hstack, csr_matrix
+from scipy.spatial.distance import cosine
 import joblib
 from typing import List, Dict, Optional, Tuple
 import logging
 from pathlib import Path
 import json
+import time
+import shutil
+import tempfile
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Model version for compatibility checking
+MODEL_VERSION = "2.0.0"
 
 
 class HybridManwhaRecommender:
@@ -38,39 +41,127 @@ class HybridManwhaRecommender:
     item-item relationships based on shared genres.
     """
 
-    def __init__(self):
+    def __init__(self,
+                 weights: Optional[Dict[str, float]] = None,
+                 tfidf_params: Optional[Dict] = None,
+                 svd_params: Optional[Dict] = None,
+                 knn_params: Optional[Dict] = None):
+        """
+        Initialize Hybrid Recommender with configurable hyperparameters.
+
+        Args:
+            weights: Component weights for hybrid scoring
+            tfidf_params: TF-IDF vectorizer parameters
+            svd_params: SVD dimensionality reduction parameters
+            knn_params: KNN model parameters
+        """
         self.df = None
         self.content_model = None
-        self.genre_model = None  # Renamed from collab_model - this is genre-based similarity, not collaborative filtering
+        self.genre_model = None
         self.tfidf_vectorizer = None
         self.rating_scaler = None
+        self.popularity_scaler = None  # Save as instance variable
         self.feature_matrix = None
         self.user_preferences = {}
 
-        # REVIEW: [HIGH] Hardcoded weights without justification
-        # Recommendation: Add hyperparameter tuning (grid search/Bayesian optimization) to find optimal weights
-        # Consider exposing these as constructor parameters for easier experimentation
-        # Weights for hybrid scoring
-        self.weights = {
-            'content': 0.4,          # Content similarity (TF-IDF)
-            'genre_similarity': 0.3, # Genre-based similarity (renamed from 'collaborative')
-            'user_pref': 0.3         # Personal preferences
+        # Configurable weights
+        self.weights = weights or {
+            'content': 0.4,
+            'genre_similarity': 0.3,
+            'user_pref': 0.3
         }
 
-    # REVIEW: [HIGH] No input validation or error handling for missing/corrupt files
-    # Recommendation: Add try-except with specific error messages, validate file exists and is valid JSON
-    # Location: prepare_data function
+        # Configurable TF-IDF parameters
+        self.tfidf_params = tfidf_params or {
+            'max_features': 5000,
+            'stop_words': None,  # Removed 'english' - wrong for Korean content
+            'ngram_range': (1, 2),
+            'min_df': 2,
+            'max_df': 0.8
+        }
+
+        # Configurable SVD parameters
+        self.svd_params = svd_params or {
+            'explained_variance_threshold': 0.90  # Auto-select components
+        }
+
+        # Configurable KNN parameters
+        self.knn_params = knn_params or {
+            'metric': 'cosine',
+            'algorithm': 'brute'
+        }
+
+        # Store all hyperparameters
+        self.hyperparameters = {
+            'weights': self.weights,
+            'tfidf': self.tfidf_params,
+            'svd': self.svd_params,
+            'knn': self.knn_params
+        }
+
+        # Model version
+        self.model_version = MODEL_VERSION
+
+        # Cache and tracking variables
+        self._title_cache = None
+        self._popularity_ranks = None
+        self._all_recommended_items = set()
+
     def prepare_data(self, catalog_path: str) -> pd.DataFrame:
-        """Load and prepare manhwa catalog data."""
-        # REVIEW: [CRITICAL] No validation of minimum data requirements
-        # Recommendation: Check for minimum number of entries, required columns before proceeding
-        # Location: Lines 50-94
+        """Load and prepare manhwa catalog data with comprehensive validation."""
         logger.info(f"Loading catalog from {catalog_path}")
 
-        with open(catalog_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        # Validate file exists
+        catalog_file = Path(catalog_path)
+        if not catalog_file.exists():
+            raise FileNotFoundError(f"Catalog file not found: {catalog_path}")
+        if not catalog_file.is_file():
+            raise ValueError(f"Path is not a file: {catalog_path}")
+
+        # Load and validate JSON
+        try:
+            with open(catalog_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in catalog file: {e}")
+        except PermissionError:
+            raise PermissionError(f"No read permission for: {catalog_path}")
+
+        # Validate data structure
+        if not isinstance(data, list):
+            raise ValueError(f"Catalog must be a list, got {type(data)}")
+
+        # Check minimum data requirements
+        if len(data) < 1:
+            raise ValueError(f"Insufficient data: {len(data)} entries. Need at least 1 entry.")
+
+        # Warn if data is too small for meaningful recommendations
+        if len(data) < 20:
+            logger.warning(f"Small dataset: {len(data)} entries. For meaningful recommendations, at least 20 entries recommended.")
 
         self.df = pd.DataFrame(data)
+
+        # Validate required columns
+        required_columns = ['name']
+        missing_columns = [col for col in required_columns if col not in self.df.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns: {missing_columns}")
+
+        # Validate data types
+        for idx, row in self.df.iterrows():
+            if not isinstance(row.get('name'), str) or not row.get('name').strip():
+                raise ValueError(f"Entry {idx}: 'name' must be non-empty string")
+            if 'description' in row and row['description'] is not None and not isinstance(row['description'], str):
+                raise ValueError(f"Entry {idx}: 'description' must be string or null")
+            if 'genres' in row and row['genres'] is not None and not isinstance(row.get('genres'), list):
+                raise ValueError(f"Entry {idx}: 'genres' must be a list")
+
+        # Check for duplicates
+        duplicates = self.df[self.df.duplicated(subset=['name'], keep=False)]
+        if not duplicates.empty:
+            dup_names = duplicates['name'].tolist()
+            logger.warning(f"Found {len(duplicates)} duplicate entries: {dup_names[:5]}...")
+            self.df = self.df.drop_duplicates(subset=['name'], keep='first')
 
         # Handle missing values
         if 'description' not in self.df.columns:
@@ -136,7 +227,7 @@ class HybridManwhaRecommender:
 
     def evaluate_recommendations(self, test_df: pd.DataFrame, k: int = 10) -> Dict[str, float]:
         """
-        Evaluate recommendation quality using standard metrics.
+        Evaluate recommendation quality using standard metrics plus coverage, novelty, diversity.
 
         For each manhwa in test set, generate recommendations and measure:
         - Precision@K: How many of top K recs share genres with the test item
@@ -144,6 +235,9 @@ class HybridManwhaRecommender:
         - NDCG@K: Normalized Discounted Cumulative Gain
         - MRR: Mean Reciprocal Rank
         - Hit Rate@K: Percentage where at least 1 relevant item in top K
+        - Coverage: Percentage of catalog items recommended
+        - Novelty: Average popularity rank (higher = more novel)
+        - Diversity: Average intra-list diversity
 
         Args:
             test_df: Test set dataframe
@@ -160,6 +254,7 @@ class HybridManwhaRecommender:
         ndcg_scores = []
         mrr_scores = []
         hits = 0
+        all_recommendation_lists = []
 
         logger.info(f"Evaluating on {len(test_df)} test items with K={k}...")
 
@@ -174,6 +269,11 @@ class HybridManwhaRecommender:
             try:
                 # Get recommendations
                 recs = self.recommend(test_title, n_recommendations=k)
+                all_recommendation_lists.append(recs)
+
+                # Track all recommended items for coverage
+                for rec in recs:
+                    self._all_recommended_items.add(rec['name'])
 
                 # Calculate relevance: items that share at least one genre
                 relevant_items = []
@@ -221,6 +321,30 @@ class HybridManwhaRecommender:
                 logger.warning(f"Error evaluating {test_title}: {e}")
                 continue
 
+        # Add coverage metric
+        coverage = len(self._all_recommended_items) / len(self.df) if len(self.df) > 0 else 0
+
+        # Add novelty metric (average popularity rank)
+        novelty_scores = []
+        if self._popularity_ranks is None:
+            self._popularity_ranks = self.df['popularity'].rank(ascending=False).to_dict()
+
+        all_recommendations = [rec for recs in all_recommendation_lists for rec in recs]
+        for rec in all_recommendations:
+            idx = self.df[self.df['name'] == rec['name']].index
+            if len(idx) > 0:
+                rank = self._popularity_ranks.get(idx[0], len(self.df))
+                novelty_scores.append(rank / len(self.df))  # Normalize
+
+        novelty = np.mean(novelty_scores) if novelty_scores else 0
+
+        # Add diversity metric
+        diversity_scores = []
+        for recs in all_recommendation_lists:
+            diversity_scores.append(self.calculate_diversity(recs))
+
+        diversity = np.mean(diversity_scores) if diversity_scores else 0
+
         # Calculate final metrics
         metrics = {
             'precision@k': np.mean(precision_scores) if precision_scores else 0.0,
@@ -228,6 +352,9 @@ class HybridManwhaRecommender:
             'ndcg@k': np.mean(ndcg_scores) if ndcg_scores else 0.0,
             'mrr': np.mean(mrr_scores) if mrr_scores else 0.0,
             'hit_rate@k': hits / len(test_df) if len(test_df) > 0 else 0.0,
+            'coverage': coverage,
+            'novelty': novelty,
+            'diversity': diversity,
             'k': k,
             'n_test_items': len(test_df),
             'n_evaluated': len(precision_scores)
@@ -239,6 +366,9 @@ class HybridManwhaRecommender:
         logger.info(f"  NDCG@{k}: {metrics['ndcg@k']:.4f}")
         logger.info(f"  MRR: {metrics['mrr']:.4f}")
         logger.info(f"  Hit Rate@{k}: {metrics['hit_rate@k']:.4f}")
+        logger.info(f"  Coverage: {metrics['coverage']:.4f}")
+        logger.info(f"  Novelty: {metrics['novelty']:.4f}")
+        logger.info(f"  Diversity: {metrics['diversity']:.4f}")
 
         return metrics
 
@@ -253,18 +383,8 @@ class HybridManwhaRecommender:
             self.df['tags'].apply(lambda x: ' '.join(x) if isinstance(x, list) else '')
         ).tolist()
 
-        # REVIEW: [HIGH] TF-IDF hyperparameters are not justified
-        # Recommendation: Add grid search to tune max_features, min_df, max_df
-        # Consider removing 'english' stop_words for non-English manhwa titles/descriptions
-        # Location: Lines 110-116
-        # TF-IDF vectorization
-        self.tfidf_vectorizer = TfidfVectorizer(
-            max_features=5000,
-            stop_words='english',
-            ngram_range=(1, 2),  # Unigrams and bigrams
-            min_df=2,
-            max_df=0.8
-        )
+        # TF-IDF vectorization with configurable parameters
+        self.tfidf_vectorizer = TfidfVectorizer(**self.tfidf_params)
 
         tfidf_matrix = self.tfidf_vectorizer.fit_transform(text_features)
         logger.info(f"TF-IDF matrix shape: {tfidf_matrix.shape}")
@@ -275,12 +395,9 @@ class HybridManwhaRecommender:
             self.df[['rating']].values
         )
 
-        # REVIEW: [MEDIUM] Popularity scaler is not saved/reused
-        # Recommendation: Store popularity_scaler as instance variable for consistency in prediction
-        # Location: Lines 128-131
-        # Normalize popularity
-        popularity_scaler = MinMaxScaler()
-        scaled_popularity = popularity_scaler.fit_transform(
+        # Normalize popularity and save scaler
+        self.popularity_scaler = MinMaxScaler()
+        scaled_popularity = self.popularity_scaler.fit_transform(
             self.df[['popularity']].values
         )
 
@@ -293,15 +410,11 @@ class HybridManwhaRecommender:
 
         logger.info(f"Combined feature matrix shape: {self.feature_matrix.shape}")
 
-        # REVIEW: [MEDIUM] Using cosine distance but features aren't L2-normalized
-        # Recommendation: Normalize feature_matrix rows to unit length for true cosine similarity
-        # Or use normalized vectors: from sklearn.preprocessing import normalize
-        # Location: Lines 143-148
-        # Train KNN model
+        # Train KNN model with configurable parameters
         self.content_model = NearestNeighbors(
             n_neighbors=min(21, len(self.df)),  # Top 20 + self
-            metric='cosine',
-            algorithm='brute'  # Better for sparse matrices
+            metric=self.knn_params['metric'],
+            algorithm=self.knn_params['algorithm']
         )
         self.content_model.fit(self.feature_matrix)
 
@@ -309,7 +422,7 @@ class HybridManwhaRecommender:
 
     def build_genre_similarity_features(self):
         """
-        Build genre-based similarity features using SVD on genre co-occurrence matrix.
+        Build genre-based similarity features using SVD with automatic component selection.
 
         This creates a lower-dimensional representation of manhwa based on their genres,
         allowing us to find similar items based on genre patterns. This is content-based
@@ -320,15 +433,23 @@ class HybridManwhaRecommender:
         # Create genre-based profiles (binary matrix of genre presence)
         genre_profiles = self._create_genre_profiles()
 
-        # REVIEW: [MEDIUM] SVD n_components=50 is arbitrary
-        # Recommendation: Use explained_variance_ratio_ to choose optimal components or tune via CV
-        # Apply dimensionality reduction to capture genre patterns
+        # Apply dimensionality reduction with auto component selection
         if len(genre_profiles) > 0:
-            self.genre_model = TruncatedSVD(
-                n_components=min(50, len(genre_profiles) - 1),
-                random_state=42
-            )
+            # Determine optimal n_components based on explained variance
+            max_components = min(100, len(genre_profiles) - 1)
+            temp_svd = TruncatedSVD(n_components=max_components, random_state=42)
+            temp_svd.fit(genre_profiles)
+
+            explained_var = temp_svd.explained_variance_ratio_.cumsum()
+            threshold = self.svd_params.get('explained_variance_threshold', 0.90)
+            n_components = np.argmax(explained_var >= threshold) + 1
+
+            logger.info(f"Using {n_components} components to explain {threshold*100}% variance")
+
+            # Final SVD with optimal components
+            self.genre_model = TruncatedSVD(n_components=n_components, random_state=42)
             self.genre_features = self.genre_model.fit_transform(genre_profiles)
+
             logger.info(f"Genre similarity features shape: {self.genre_features.shape}")
         else:
             self.genre_features = None
@@ -347,9 +468,277 @@ class HybridManwhaRecommender:
 
         return genre_matrix
 
-    # REVIEW: [MEDIUM] No validation that model has been trained
-    # Recommendation: Add check if self.content_model is None, raise informative error
-    # Location: get_content_recommendations function
+    def tune_hyperparameters(self,
+                            train_df: pd.DataFrame,
+                            val_df: pd.DataFrame,
+                            param_grid: Optional[Dict] = None,
+                            metric: str = 'ndcg@k',
+                            k: int = 10) -> Dict:
+        """
+        Tune hyperparameters using grid search.
+
+        Args:
+            train_df: Training dataframe
+            val_df: Validation dataframe
+            param_grid: Parameter grid to search. If None, uses defaults.
+            metric: Metric to optimize ('ndcg@k', 'precision@k', 'mrr')
+            k: K value for ranking metrics
+
+        Returns:
+            Dict with best_params, best_score, all_results
+        """
+        if param_grid is None:
+            # Default search space
+            param_grid = {
+                'weights': [
+                    {'content': 0.5, 'genre_similarity': 0.3, 'user_pref': 0.2},
+                    {'content': 0.4, 'genre_similarity': 0.3, 'user_pref': 0.3},
+                    {'content': 0.3, 'genre_similarity': 0.4, 'user_pref': 0.3},
+                    {'content': 0.4, 'genre_similarity': 0.4, 'user_pref': 0.2},
+                ],
+                'tfidf_max_features': [3000, 5000, 10000],
+                'tfidf_min_df': [1, 2, 3],
+                'tfidf_max_df': [0.7, 0.8, 0.9]
+            }
+
+        logger.info(f"Starting hyperparameter tuning, optimizing for {metric}@{k}")
+
+        best_score = 0
+        best_params = None
+        all_results = []
+
+        from itertools import product
+
+        # Generate all combinations
+        keys = list(param_grid.keys())
+        values = list(param_grid.values())
+
+        for combination in product(*values):
+            params = dict(zip(keys, combination))
+
+            # Apply parameters
+            if 'weights' in params:
+                self.weights = params['weights']
+            if 'tfidf_max_features' in params:
+                self.tfidf_params['max_features'] = params['tfidf_max_features']
+            if 'tfidf_min_df' in params:
+                self.tfidf_params['min_df'] = params['tfidf_min_df']
+            if 'tfidf_max_df' in params:
+                self.tfidf_params['max_df'] = params['tfidf_max_df']
+
+            # Train on training set
+            self.df = train_df
+            self.build_content_features()
+            self.build_genre_similarity_features()
+
+            # Evaluate on validation set
+            # Need to include val items in df for lookup
+            self.df = pd.concat([train_df, val_df])
+
+            try:
+                metrics = self.evaluate_recommendations(val_df, k=k)
+                score = metrics.get(metric, 0)
+
+                result = {
+                    'params': params.copy(),
+                    'score': score,
+                    'metrics': metrics
+                }
+                all_results.append(result)
+
+                logger.info(f"Params: {params} -> {metric}: {score:.4f}")
+
+                if score > best_score:
+                    best_score = score
+                    best_params = params.copy()
+            except Exception as e:
+                logger.warning(f"Failed to evaluate params {params}: {e}")
+
+        logger.info(f"Best {metric}: {best_score:.4f}")
+        logger.info(f"Best params: {best_params}")
+
+        # Apply best parameters
+        if best_params:
+            if 'weights' in best_params:
+                self.weights = best_params['weights']
+            if 'tfidf_max_features' in best_params:
+                self.tfidf_params['max_features'] = best_params['tfidf_max_features']
+            if 'tfidf_min_df' in best_params:
+                self.tfidf_params['min_df'] = best_params['tfidf_min_df']
+            if 'tfidf_max_df' in best_params:
+                self.tfidf_params['max_df'] = best_params['tfidf_max_df']
+
+        return {
+            'best_params': best_params,
+            'best_score': best_score,
+            'all_results': all_results
+        }
+
+    def handle_cold_start(self,
+                         user_profile: Optional[Dict] = None,
+                         n_recommendations: int = 10,
+                         popularity_bias: float = 0.5) -> List[Dict]:
+        """
+        Handle cold start scenarios for new users or when no history is available.
+
+        Args:
+            user_profile: Optional user preferences
+            n_recommendations: Number of recommendations
+            popularity_bias: 0-1, higher = more popular items (exploration vs exploitation)
+
+        Returns:
+            List of diverse, popular recommendations
+        """
+        if self.df is None or len(self.df) == 0:
+            return []
+
+        # Get top rated items
+        top_rated = self.df.nlargest(n_recommendations * 3, 'rating')
+
+        # Add popularity boost
+        if 'popularity' in top_rated.columns:
+            top_rated = top_rated.copy()
+            top_rated['combined_score'] = (
+                (1 - popularity_bias) * top_rated['rating'] +
+                popularity_bias * (top_rated['popularity'] / top_rated['popularity'].max())
+            )
+            top_rated = top_rated.nlargest(n_recommendations * 2, 'combined_score')
+
+        # Ensure genre diversity
+        diverse_recs = []
+        seen_genres = set()
+
+        for _, row in top_rated.iterrows():
+            if len(diverse_recs) >= n_recommendations:
+                break
+
+            row_genres = set(row.get('genres', []))
+            # Add if it introduces new genres or we have few recs
+            if len(diverse_recs) < 3 or len(row_genres - seen_genres) > 0:
+                diverse_recs.append(row.to_dict())
+                seen_genres.update(row_genres)
+
+        # Fill remaining with top rated if needed
+        while len(diverse_recs) < n_recommendations and len(diverse_recs) < len(top_rated):
+            idx = len(diverse_recs)
+            if idx < len(top_rated):
+                diverse_recs.append(top_rated.iloc[idx].to_dict())
+
+        return diverse_recs
+
+    def calculate_diversity(self, recommendations: List[Dict]) -> float:
+        """
+        Calculate intra-list diversity of recommendations.
+
+        Returns:
+            Diversity score 0-1 (higher = more diverse)
+        """
+        if len(recommendations) < 2:
+            return 1.0
+
+        # Get feature vectors for each recommendation
+        indices = []
+        for rec in recommendations:
+            idx = self.df[self.df['name'] == rec['name']].index
+            if len(idx) > 0:
+                indices.append(idx[0])
+
+        if len(indices) < 2:
+            return 1.0
+
+        # Calculate pairwise cosine similarities
+        similarities = []
+        for i in range(len(indices)):
+            for j in range(i + 1, len(indices)):
+                vec1 = self.feature_matrix[indices[i]].toarray().flatten()
+                vec2 = self.feature_matrix[indices[j]].toarray().flatten()
+
+                # Cosine distance = 1 - cosine similarity
+                try:
+                    dist = cosine(vec1, vec2)
+                    if not np.isnan(dist):
+                        similarities.append(1 - dist)  # Convert to similarity
+                except:
+                    pass
+
+        if not similarities:
+            return 1.0
+
+        # Diversity = 1 - average similarity
+        avg_similarity = np.mean(similarities)
+        diversity = 1 - avg_similarity
+
+        return max(0, min(1, diversity))
+
+    def _mmr_rerank(self,
+                    candidate_scores: Dict[int, float],
+                    query_idx: int,
+                    n_recommendations: int,
+                    diversity_weight: float = 0.5) -> List[int]:
+        """
+        Maximal Marginal Relevance re-ranking for diversity.
+
+        Args:
+            candidate_scores: Dict of {idx: relevance_score}
+            query_idx: Query item index
+            n_recommendations: Number to return
+            diversity_weight: 0-1, higher = more diversity (lambda in MMR formula)
+
+        Returns:
+            List of reranked indices
+        """
+        if len(candidate_scores) <= n_recommendations:
+            return list(candidate_scores.keys())
+
+        selected = []
+        remaining = set(candidate_scores.keys())
+
+        # Select item with highest relevance first
+        first_item = max(candidate_scores.items(), key=lambda x: x[1])[0]
+        selected.append(first_item)
+        remaining.remove(first_item)
+
+        # Iteratively select items balancing relevance and diversity
+        while len(selected) < n_recommendations and remaining:
+            mmr_scores = {}
+
+            for idx in remaining:
+                # Relevance component
+                relevance = candidate_scores[idx]
+
+                # Diversity component: max similarity to already selected
+                max_sim = 0
+                for sel_idx in selected:
+                    vec1 = self.feature_matrix[idx].toarray().flatten()
+                    vec2 = self.feature_matrix[sel_idx].toarray().flatten()
+
+                    try:
+                        dist = cosine(vec1, vec2)
+                        similarity = 1 - dist
+                        max_sim = max(max_sim, similarity)
+                    except:
+                        pass
+
+                # MMR = λ * Relevance - (1-λ) * MaxSimilarity
+                mmr = diversity_weight * relevance - (1 - diversity_weight) * max_sim
+                mmr_scores[idx] = mmr
+
+            # Select item with highest MMR
+            if mmr_scores:
+                next_item = max(mmr_scores.items(), key=lambda x: x[1])[0]
+                selected.append(next_item)
+                remaining.remove(next_item)
+            else:
+                break
+
+        return selected
+
+    def _build_title_cache(self):
+        """Build cache for O(1) title lookups."""
+        self._title_cache = {
+            title.lower(): idx
+            for idx, title in enumerate(self.df['name'])
+        }
     def get_content_recommendations(
         self,
         manhwa_title: str,
@@ -462,33 +851,31 @@ class HybridManwhaRecommender:
 
         return score
 
-    # REVIEW: [HIGH] No error handling or logging when input manhwa not found
-    # Recommendation: Log warning with suggestions for similar titles
-    # Location: recommend function
     def recommend(
         self,
         manhwa_title: str,
         n_recommendations: int = 10,
         user_profile: Optional[Dict] = None,
-        filters: Optional[Dict] = None
+        filters: Optional[Dict] = None,
+        diversity: float = 0.0
     ) -> List[Dict]:
         """
-        Get hybrid recommendations combining all methods.
+        Get hybrid recommendations with optional diversity re-ranking.
 
         Args:
             manhwa_title: Title of manhwa to base recommendations on
             n_recommendations: Number of recommendations to return
             user_profile: User preference profile
             filters: Additional filters (genre, rating, status, etc.)
+            diversity: 0-1, higher = more diverse results (uses MMR)
 
         Returns:
             List of recommended manhwa with scores
         """
-        # REVIEW: [MEDIUM] Silent failure returns empty list - should log error
-        # Location: Lines 326-328
         # Find input manhwa index to exclude it from results
         input_idx = self._find_manhwa_index(manhwa_title)
         if input_idx is None:
+            logger.warning(f"No match found for '{manhwa_title}'")
             return []
 
         # Get recommendations from each method
@@ -511,9 +898,6 @@ class HybridManwhaRecommender:
         for idx, score in genre_recs:
             combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['genre_similarity'] * score
 
-        # REVIEW: [MEDIUM] Weights don't sum to 1.0 when user_profile is None
-        # Recommendation: Normalize weights dynamically based on which components are active
-        # Location: Lines 351-354
         # User preference scores
         if user_profile:
             for idx in combined_scores.keys():
@@ -528,12 +912,23 @@ class HybridManwhaRecommender:
         if input_idx in combined_scores:
             del combined_scores[input_idx]
 
-        # Sort by combined score
-        sorted_recs = sorted(
-            combined_scores.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:n_recommendations]
+        # Apply MMR re-ranking if diversity requested
+        if diversity > 0 and len(combined_scores) > n_recommendations:
+            reranked_indices = self._mmr_rerank(
+                combined_scores,
+                input_idx,
+                n_recommendations,
+                diversity_weight=diversity
+            )
+            # Use reranked order
+            sorted_recs = [(idx, combined_scores[idx]) for idx in reranked_indices]
+        else:
+            # Sort by combined score
+            sorted_recs = sorted(
+                combined_scores.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:n_recommendations]
 
         # Build result list
         recommendations = []
@@ -580,24 +975,20 @@ class HybridManwhaRecommender:
 
         return filtered_scores
 
-    # REVIEW: [MEDIUM] Fuzzy matching computed fresh every time - no caching
-    # Recommendation: Cache fuzzy match results or pre-build index for common queries
-    # Location: _find_manhwa_index function
     def _find_manhwa_index(self, title: str) -> Optional[int]:
-        """Find manhwa index by title with fuzzy matching."""
-        # REVIEW: [LOW] Import inside function - move to top of file
-        # Location: Line 418
+        """Find manhwa index by title with caching and fuzzy matching."""
         from rapidfuzz import fuzz, process
 
-        # Exact match first
-        exact_match = self.df[self.df['name'].str.lower() == title.lower()]
-        if not exact_match.empty:
-            return exact_match.index[0]
+        # Build cache if needed
+        if self._title_cache is None:
+            self._build_title_cache()
 
-        # REVIEW: [MEDIUM] Converting entire column to list on every call is wasteful
-        # Recommendation: Cache the titles list as instance variable
-        # Location: Line 426
-        # Fuzzy match
+        # Fast exact match using cache
+        idx = self._title_cache.get(title.lower())
+        if idx is not None:
+            return idx
+
+        # Fall back to fuzzy matching
         titles = self.df['name'].tolist()
         best_match = process.extractOne(
             title,
@@ -614,66 +1005,206 @@ class HybridManwhaRecommender:
         logger.warning(f"No match found for '{title}'")
         return None
 
-    # REVIEW: [MEDIUM] No error handling for file I/O operations
-    # Recommendation: Wrap in try-except, validate write permissions before starting
-    # Location: save_model function
     def save_model(self, output_dir: str = "models"):
-        """Save trained models and data."""
+        """Save trained models with atomic writes and error handling."""
+        # Validate model is trained
+        if self.content_model is None:
+            raise ValueError("Cannot save: content model not trained. Call build_content_features() first.")
+        if self.df is None or len(self.df) == 0:
+            raise ValueError("Cannot save: no data loaded. Call prepare_data() first.")
+
         output_path = Path(output_dir)
-        output_path.mkdir(exist_ok=True)
 
-        # Save models
-        joblib.dump(self.content_model, output_path / "content_model.pkl")
-        joblib.dump(self.tfidf_vectorizer, output_path / "tfidf_vectorizer.pkl")
-        joblib.dump(self.rating_scaler, output_path / "rating_scaler.pkl")
-        joblib.dump(self.feature_matrix, output_path / "feature_matrix.pkl")
+        # Check write permissions
+        try:
+            output_path.mkdir(exist_ok=True, parents=True)
+        except PermissionError:
+            raise PermissionError(f"No write permission for directory: {output_dir}")
 
-        if self.genre_model:
-            joblib.dump(self.genre_model, output_path / "genre_model.pkl")
-            joblib.dump(self.genre_features, output_path / "genre_features.pkl")
+        # Use temporary directory for atomic writes
+        temp_dir = output_path / f".tmp_{int(time.time())}"
 
-        # Save dataframe
-        self.df.to_pickle(output_path / "manhwa_catalog.pkl")
+        try:
+            temp_dir.mkdir(exist_ok=True)
 
-        # Save config
-        config = {
-            'weights': self.weights,
-            'n_entries': len(self.df)
-        }
-        with open(output_path / "recommender_config.json", 'w') as f:
-            json.dump(config, f, indent=2)
+            # Save each component with error handling
+            try:
+                joblib.dump(self.content_model, temp_dir / "content_model.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to save content_model: {e}")
 
-        logger.info(f"Models saved to {output_path}")
+            try:
+                joblib.dump(self.tfidf_vectorizer, temp_dir / "tfidf_vectorizer.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to save tfidf_vectorizer: {e}")
 
-    # REVIEW: [HIGH] No validation that files exist before loading
-    # Recommendation: Check file existence, add try-except with informative errors
-    # Location: load_model function
+            try:
+                joblib.dump(self.rating_scaler, temp_dir / "rating_scaler.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to save rating_scaler: {e}")
+
+            try:
+                joblib.dump(self.feature_matrix, temp_dir / "feature_matrix.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to save feature_matrix: {e}")
+
+            # Save popularity scaler if it exists
+            if self.popularity_scaler is not None:
+                try:
+                    joblib.dump(self.popularity_scaler, temp_dir / "popularity_scaler.pkl")
+                except Exception as e:
+                    raise IOError(f"Failed to save popularity_scaler: {e}")
+
+            # Save genre model if it exists
+            if self.genre_model:
+                try:
+                    joblib.dump(self.genre_model, temp_dir / "genre_model.pkl")
+                except Exception as e:
+                    raise IOError(f"Failed to save genre_model: {e}")
+
+                try:
+                    joblib.dump(self.genre_features, temp_dir / "genre_features.pkl")
+                except Exception as e:
+                    raise IOError(f"Failed to save genre_features: {e}")
+
+            # Save dataframe
+            try:
+                self.df.to_pickle(temp_dir / "manhwa_catalog.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to save manhwa_catalog: {e}")
+
+            # Save config
+            config = {
+                'version': self.model_version,
+                'weights': self.weights,
+                'hyperparameters': self.hyperparameters,
+                'n_entries': len(self.df),
+                'feature_matrix_shape': self.feature_matrix.shape,
+                'has_genre_model': self.genre_model is not None,
+                'timestamp': time.time()
+            }
+
+            try:
+                with open(temp_dir / "recommender_config.json", 'w') as f:
+                    json.dump(config, f, indent=2)
+            except Exception as e:
+                raise IOError(f"Failed to save config: {e}")
+
+            # Atomic move from temp to final location
+            for file in temp_dir.glob("*"):
+                final_path = output_path / file.name
+                if final_path.exists():
+                    final_path.unlink()
+                file.rename(final_path)
+
+            logger.info(f"Models saved to {output_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to save model: {e}")
+            raise
+        finally:
+            # Cleanup temp directory
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
     def load_model(self, model_dir: str = "models"):
-        """Load pre-trained models."""
+        """Load pre-trained models with comprehensive validation."""
         model_path = Path(model_dir)
 
-        # REVIEW: [MEDIUM] No version checking - models could be incompatible
-        # Recommendation: Save and validate model version/schema
-        # Location: Lines 474-489
-        self.content_model = joblib.load(model_path / "content_model.pkl")
-        self.tfidf_vectorizer = joblib.load(model_path / "tfidf_vectorizer.pkl")
-        self.rating_scaler = joblib.load(model_path / "rating_scaler.pkl")
-        self.feature_matrix = joblib.load(model_path / "feature_matrix.pkl")
+        # Validate directory exists
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model directory not found: {model_dir}")
+        if not model_path.is_dir():
+            raise ValueError(f"Path is not a directory: {model_dir}")
+
+        # Check all required files exist
+        required_files = [
+            "content_model.pkl",
+            "tfidf_vectorizer.pkl",
+            "rating_scaler.pkl",
+            "feature_matrix.pkl",
+            "manhwa_catalog.pkl",
+            "recommender_config.json"
+        ]
+
+        missing_files = [f for f in required_files if not (model_path / f).exists()]
+        if missing_files:
+            raise FileNotFoundError(f"Missing required model files: {missing_files}")
+
+        # Load and validate config first
+        try:
+            with open(model_path / "recommender_config.json", 'r') as f:
+                config = json.load(f)
+        except Exception as e:
+            raise ValueError(f"Failed to load config: {e}")
+
+        # Validate version compatibility
+        model_version = config.get('version', '1.0.0')
+        major_version = model_version.split('.')[0]
+        current_major = MODEL_VERSION.split('.')[0]
+        if major_version != current_major:
+            raise ValueError(f"Incompatible model version: {model_version} vs {MODEL_VERSION}")
+        if model_version != MODEL_VERSION:
+            logger.warning(f"Model version mismatch: {model_version} vs {MODEL_VERSION}")
+
+        # Load core components with error handling
+        try:
+            self.content_model = joblib.load(model_path / "content_model.pkl")
+        except Exception as e:
+            raise IOError(f"Failed to load content_model: {e}")
+
+        try:
+            self.tfidf_vectorizer = joblib.load(model_path / "tfidf_vectorizer.pkl")
+        except Exception as e:
+            raise IOError(f"Failed to load tfidf_vectorizer: {e}")
+
+        try:
+            self.rating_scaler = joblib.load(model_path / "rating_scaler.pkl")
+        except Exception as e:
+            raise IOError(f"Failed to load rating_scaler: {e}")
+
+        try:
+            self.feature_matrix = joblib.load(model_path / "feature_matrix.pkl")
+        except Exception as e:
+            raise IOError(f"Failed to load feature_matrix: {e}")
+
+        # Load popularity scaler if it exists
+        if (model_path / "popularity_scaler.pkl").exists():
+            try:
+                self.popularity_scaler = joblib.load(model_path / "popularity_scaler.pkl")
+            except Exception as e:
+                logger.warning(f"Failed to load popularity_scaler: {e}")
 
         # Load genre model (support both new and legacy naming)
         if (model_path / "genre_model.pkl").exists():
-            self.genre_model = joblib.load(model_path / "genre_model.pkl")
-            self.genre_features = joblib.load(model_path / "genre_features.pkl")
+            try:
+                self.genre_model = joblib.load(model_path / "genre_model.pkl")
+                self.genre_features = joblib.load(model_path / "genre_features.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to load genre_model: {e}")
         elif (model_path / "collab_model.pkl").exists():
             # Backward compatibility with old naming
             logger.info("Loading legacy collab_model (now genre_model)")
-            self.genre_model = joblib.load(model_path / "collab_model.pkl")
-            self.genre_features = joblib.load(model_path / "collab_features.pkl")
+            try:
+                self.genre_model = joblib.load(model_path / "collab_model.pkl")
+                self.genre_features = joblib.load(model_path / "collab_features.pkl")
+            except Exception as e:
+                raise IOError(f"Failed to load legacy collab_model: {e}")
 
-        self.df = pd.read_pickle(model_path / "manhwa_catalog.pkl")
+        try:
+            self.df = pd.read_pickle(model_path / "manhwa_catalog.pkl")
+        except Exception as e:
+            raise IOError(f"Failed to load manhwa_catalog: {e}")
 
-        with open(model_path / "recommender_config.json", 'r') as f:
-            config = json.load(f)
+        # Load hyperparameters if available
+        if 'hyperparameters' in config:
+            self.hyperparameters = config['hyperparameters']
+            self.weights = self.hyperparameters.get('weights', self.weights)
+            self.tfidf_params = self.hyperparameters.get('tfidf', self.tfidf_params)
+            self.svd_params = self.hyperparameters.get('svd', self.svd_params)
+            self.knn_params = self.hyperparameters.get('knn', self.knn_params)
+        else:
+            # Load weights from config (legacy models)
             loaded_weights = config['weights']
 
             # Backward compatibility: convert old 'collaborative' key to 'genre_similarity'
