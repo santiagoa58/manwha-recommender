@@ -39,21 +39,45 @@ class HybridManwhaRecommender:
     Note: This does NOT include true collaborative filtering, which would require
     user-item interaction data (ratings, views, etc.). The genre similarity uses
     item-item relationships based on shared genres.
+
+    Thread Safety Warning:
+    This class is NOT thread-safe. Mutable state (df, user_preferences,
+    _all_recommended_items, _title_cache, etc.) is modified without locking.
+    Use separate instances per thread or implement external synchronization.
     """
+
+    # User preference scoring weights (used in get_user_preference_score)
+    # These weights balance different aspects of user preferences:
+    # - base_score: Starting point for preference calculation
+    # - genre_match: Weight for matching liked genres
+    # - genre_penalty: Penalty for disliked genres
+    # - rating_boost: Boost for meeting minimum rating threshold
+    # - rating_penalty: Penalty for not meeting rating threshold
+    # - status_boost: Boost for matching preferred status
+    USER_PREF_WEIGHTS = {
+        'base_score': 0.5,
+        'genre_match': 0.3,
+        'genre_penalty': 0.3,
+        'rating_boost': 0.2,
+        'rating_penalty': 0.3,
+        'status_boost': 0.1
+    }
 
     def __init__(self,
                  weights: Optional[Dict[str, float]] = None,
                  tfidf_params: Optional[Dict] = None,
                  svd_params: Optional[Dict] = None,
-                 knn_params: Optional[Dict] = None):
+                 knn_params: Optional[Dict] = None,
+                 user_pref_weights: Optional[Dict[str, float]] = None):
         """
         Initialize Hybrid Recommender with configurable hyperparameters.
 
         Args:
-            weights: Component weights for hybrid scoring
+            weights: Component weights for hybrid scoring (must sum to ~1.0)
             tfidf_params: TF-IDF vectorizer parameters
             svd_params: SVD dimensionality reduction parameters
             knn_params: KNN model parameters
+            user_pref_weights: Weights for user preference scoring components
         """
         self.df = None
         self.content_model = None
@@ -70,6 +94,17 @@ class HybridManwhaRecommender:
             'genre_similarity': 0.3,
             'user_pref': 0.3
         }
+
+        # Validate weights sum to approximately 1.0
+        weight_sum = sum(self.weights.values())
+        if not np.isclose(weight_sum, 1.0, atol=0.01):
+            raise ValueError(
+                f"Component weights must sum to 1.0 (got {weight_sum:.3f}). "
+                f"Weights: {self.weights}"
+            )
+
+        # User preference weights
+        self.user_pref_weights = user_pref_weights or self.USER_PREF_WEIGHTS.copy()
 
         # Configurable TF-IDF parameters
         self.tfidf_params = tfidf_params or {
@@ -225,7 +260,8 @@ class HybridManwhaRecommender:
 
         return train_df, test_df
 
-    def evaluate_recommendations(self, test_df: pd.DataFrame, k: int = 10) -> Dict[str, float]:
+    def evaluate_recommendations(self, test_df: pd.DataFrame, k: int = 10,
+                                 append_test_to_df: bool = True) -> Dict[str, float]:
         """
         Evaluate recommendation quality using standard metrics plus coverage, novelty, diversity.
 
@@ -242,12 +278,31 @@ class HybridManwhaRecommender:
         Args:
             test_df: Test set dataframe
             k: Number of recommendations to evaluate
+            append_test_to_df: If True, temporarily append test items to self.df for lookup.
+                              This is needed to find test items but could leak test data into
+                              recommendations. Set False for strict evaluation.
 
         Returns:
             Dictionary of metric scores
+
+        Note: To prevent data leakage, the model should be trained only on training data
+        before calling this method. This method will validate that no test items appear
+        in recommendations (which would indicate training data leakage).
         """
         if self.content_model is None:
             raise ValueError("Model not trained. Call build_content_features() first.")
+
+        # Store original training df to restore later
+        original_df = self.df.copy()
+        test_item_names = set(test_df['name'].values)
+
+        # Optionally append test items for lookup (but track for leakage detection)
+        if append_test_to_df:
+            self.df = pd.concat([original_df, test_df], ignore_index=True)
+            logger.info(f"Temporarily added {len(test_df)} test items to df for evaluation lookup")
+
+        # Reset coverage tracking for this evaluation run
+        self._all_recommended_items = set()
 
         precision_scores = []
         recall_scores = []
@@ -255,6 +310,7 @@ class HybridManwhaRecommender:
         mrr_scores = []
         hits = 0
         all_recommendation_lists = []
+        data_leakage_detected = []  # Track any test items that appear in recommendations
 
         logger.info(f"Evaluating on {len(test_df)} test items with K={k}...")
 
@@ -274,6 +330,13 @@ class HybridManwhaRecommender:
                 # Track all recommended items for coverage
                 for rec in recs:
                     self._all_recommended_items.add(rec['name'])
+
+                    # Check for data leakage: test items appearing in recommendations
+                    if rec['name'] in test_item_names and rec['name'] != test_title:
+                        data_leakage_detected.append({
+                            'test_item': test_title,
+                            'leaked_item': rec['name']
+                        })
 
                 # Calculate relevance: items that share at least one genre
                 relevant_items = []
@@ -308,8 +371,21 @@ class HybridManwhaRecommender:
                 recall = len(relevant_items) / len(all_relevant) if len(all_relevant) > 0 else 0
                 recall_scores.append(recall)
 
-                # NDCG@K - normalize by ideal DCG
-                ideal_dcg = sum(1.0 / np.log2(i + 2) for i in range(min(k, len(all_relevant))))
+                # NDCG@K - normalize by ideal DCG using actual relevance scores
+                # Calculate Jaccard similarity for all relevant items
+                all_relevant_scores = []
+                for _, rel_row in all_relevant.iterrows():
+                    rel_genres = set(rel_row['genres']) if isinstance(rel_row['genres'], list) else set()
+                    if len(test_genres | rel_genres) > 0:
+                        jaccard = len(test_genres & rel_genres) / len(test_genres | rel_genres)
+                        all_relevant_scores.append(jaccard)
+
+                # Sort relevance scores in descending order for ideal DCG
+                all_relevant_scores.sort(reverse=True)
+                ideal_dcg = sum(
+                    rel_score / np.log2(i + 2)
+                    for i, rel_score in enumerate(all_relevant_scores[:k])
+                )
                 ndcg = dcg / ideal_dcg if ideal_dcg > 0 else 0
                 ndcg_scores.append(ndcg)
 
@@ -345,6 +421,23 @@ class HybridManwhaRecommender:
 
         diversity = np.mean(diversity_scores) if diversity_scores else 0
 
+        # Restore original training df
+        self.df = original_df
+        logger.debug(f"Restored original df with {len(self.df)} training items")
+
+        # Validate no data leakage occurred
+        if data_leakage_detected:
+            leakage_summary = {}
+            for leak in data_leakage_detected:
+                key = leak['leaked_item']
+                leakage_summary[key] = leakage_summary.get(key, 0) + 1
+
+            logger.warning(
+                f"DATA LEAKAGE DETECTED: {len(data_leakage_detected)} instances where test items "
+                f"appeared in recommendations. This inflates metrics. "
+                f"Top leaked items: {list(leakage_summary.items())[:5]}"
+            )
+
         # Calculate final metrics
         metrics = {
             'precision@k': np.mean(precision_scores) if precision_scores else 0.0,
@@ -357,7 +450,8 @@ class HybridManwhaRecommender:
             'diversity': diversity,
             'k': k,
             'n_test_items': len(test_df),
-            'n_evaluated': len(precision_scores)
+            'n_evaluated': len(precision_scores),
+            'data_leakage_count': len(data_leakage_detected)
         }
 
         logger.info(f"Evaluation Results (K={k}):")
@@ -369,6 +463,8 @@ class HybridManwhaRecommender:
         logger.info(f"  Coverage: {metrics['coverage']:.4f}")
         logger.info(f"  Novelty: {metrics['novelty']:.4f}")
         logger.info(f"  Diversity: {metrics['diversity']:.4f}")
+        if data_leakage_detected:
+            logger.info(f"  Data Leakage Count: {metrics['data_leakage_count']} ⚠️")
 
         return metrics
 
@@ -473,16 +569,18 @@ class HybridManwhaRecommender:
                             val_df: pd.DataFrame,
                             param_grid: Optional[Dict] = None,
                             metric: str = 'ndcg@k',
-                            k: int = 10) -> Dict:
+                            k: int = 10,
+                            n_folds: int = 3) -> Dict:
         """
-        Tune hyperparameters using grid search.
+        Tune hyperparameters using grid search with k-fold cross-validation.
 
         Args:
             train_df: Training dataframe
-            val_df: Validation dataframe
+            val_df: Validation dataframe (used as final holdout set)
             param_grid: Parameter grid to search. If None, uses defaults.
             metric: Metric to optimize ('ndcg@k', 'precision@k', 'mrr')
             k: K value for ranking metrics
+            n_folds: Number of folds for cross-validation (default: 3)
 
         Returns:
             Dict with best_params, best_score, all_results
@@ -501,7 +599,7 @@ class HybridManwhaRecommender:
                 'tfidf_max_df': [0.7, 0.8, 0.9]
             }
 
-        logger.info(f"Starting hyperparameter tuning, optimizing for {metric}@{k}")
+        logger.info(f"Starting hyperparameter tuning with {n_folds}-fold CV, optimizing for {metric}@{k}")
 
         best_score = 0
         best_params = None
@@ -516,43 +614,64 @@ class HybridManwhaRecommender:
         for combination in product(*values):
             params = dict(zip(keys, combination))
 
-            # Apply parameters
-            if 'weights' in params:
-                self.weights = params['weights']
-            if 'tfidf_max_features' in params:
-                self.tfidf_params['max_features'] = params['tfidf_max_features']
-            if 'tfidf_min_df' in params:
-                self.tfidf_params['min_df'] = params['tfidf_min_df']
-            if 'tfidf_max_df' in params:
-                self.tfidf_params['max_df'] = params['tfidf_max_df']
+            # Perform k-fold cross-validation on train_df
+            fold_scores = []
+            fold_size = len(train_df) // n_folds
 
-            # Train on training set
-            self.df = train_df
-            self.build_content_features()
-            self.build_genre_similarity_features()
+            for fold in range(n_folds):
+                # Create fold split
+                val_start = fold * fold_size
+                val_end = (fold + 1) * fold_size if fold < n_folds - 1 else len(train_df)
 
-            # Evaluate on validation set
-            # Need to include val items in df for lookup
-            self.df = pd.concat([train_df, val_df])
+                fold_train_df = pd.concat([
+                    train_df.iloc[:val_start],
+                    train_df.iloc[val_end:]
+                ])
+                fold_val_df = train_df.iloc[val_start:val_end]
 
-            try:
-                metrics = self.evaluate_recommendations(val_df, k=k)
-                score = metrics.get(metric, 0)
+                # Apply parameters
+                if 'weights' in params:
+                    self.weights = params['weights']
+                if 'tfidf_max_features' in params:
+                    self.tfidf_params['max_features'] = params['tfidf_max_features']
+                if 'tfidf_min_df' in params:
+                    self.tfidf_params['min_df'] = params['tfidf_min_df']
+                if 'tfidf_max_df' in params:
+                    self.tfidf_params['max_df'] = params['tfidf_max_df']
 
+                # Train on fold training set
+                self.df = fold_train_df
+                self.build_content_features()
+                self.build_genre_similarity_features()
+
+                # Evaluate on fold validation set
+                # Need to include val items in df for lookup
+                self.df = pd.concat([fold_train_df, fold_val_df])
+
+                try:
+                    fold_metrics = self.evaluate_recommendations(fold_val_df, k=k)
+                    fold_score = fold_metrics.get(metric, 0)
+                    fold_scores.append(fold_score)
+                except Exception as e:
+                    logger.warning(f"Failed to evaluate fold {fold} for params {params}: {e}")
+                    continue
+
+            # Average score across folds
+            if fold_scores:
+                avg_score = np.mean(fold_scores)
                 result = {
                     'params': params.copy(),
-                    'score': score,
-                    'metrics': metrics
+                    'score': avg_score,
+                    'fold_scores': fold_scores,
+                    'score_std': np.std(fold_scores)
                 }
                 all_results.append(result)
 
-                logger.info(f"Params: {params} -> {metric}: {score:.4f}")
+                logger.info(f"Params: {params} -> {metric}: {avg_score:.4f} ± {np.std(fold_scores):.4f}")
 
-                if score > best_score:
-                    best_score = score
+                if avg_score > best_score:
+                    best_score = avg_score
                     best_params = params.copy()
-            except Exception as e:
-                logger.warning(f"Failed to evaluate params {params}: {e}")
 
         logger.info(f"Best {metric}: {best_score:.4f}")
         logger.info(f"Best params: {best_params}")
@@ -598,11 +717,20 @@ class HybridManwhaRecommender:
         # Add popularity boost
         if 'popularity' in top_rated.columns:
             top_rated = top_rated.copy()
-            top_rated['combined_score'] = (
-                (1 - popularity_bias) * top_rated['rating'] +
-                popularity_bias * (top_rated['popularity'] / top_rated['popularity'].max())
-            )
-            top_rated = top_rated.nlargest(n_recommendations * 2, 'combined_score')
+            max_pop = top_rated['popularity'].max()
+
+            # Check for division by zero
+            if max_pop > 0:
+                top_rated['combined_score'] = (
+                    (1 - popularity_bias) * top_rated['rating'] +
+                    popularity_bias * (top_rated['popularity'] / max_pop)
+                )
+                top_rated = top_rated.nlargest(n_recommendations * 2, 'combined_score')
+            else:
+                # Fallback to rating only if all popularity scores are 0
+                logger.warning("All popularity scores are 0, using rating only for cold start")
+                top_rated['combined_score'] = top_rated['rating']
+                top_rated = top_rated.nlargest(n_recommendations * 2, 'combined_score')
 
         # Ensure genre diversity
         diverse_recs = []
@@ -658,8 +786,8 @@ class HybridManwhaRecommender:
                     dist = cosine(vec1, vec2)
                     if not np.isnan(dist):
                         similarities.append(1 - dist)  # Convert to similarity
-                except:
-                    pass
+                except (ValueError, RuntimeError) as e:
+                    logger.debug(f"Failed to compute cosine distance for diversity: {e}")
 
         if not similarities:
             return 1.0
@@ -676,16 +804,43 @@ class HybridManwhaRecommender:
                     n_recommendations: int,
                     diversity_weight: float = 0.5) -> List[int]:
         """
-        Maximal Marginal Relevance re-ranking for diversity.
+        Re-rank candidates using Maximal Marginal Relevance for diversity.
+
+        MMR balances relevance and diversity by iteratively selecting items that
+        are both relevant to the query and dissimilar to already-selected items.
+        This prevents redundant recommendations and improves user satisfaction.
+
+        Algorithm:
+        1. Select the most relevant item first (highest relevance score)
+        2. For each subsequent item, maximize: λ*Rel(item) - (1-λ)*MaxSim(item, Selected)
+           - Relevance component: Original recommendation score
+           - Diversity component: Maximum cosine similarity to any selected item
+        3. Continue until n_recommendations items selected or candidates exhausted
 
         Args:
-            candidate_scores: Dict of {idx: relevance_score}
-            query_idx: Query item index
-            n_recommendations: Number to return
-            diversity_weight: 0-1, higher = more diversity (lambda in MMR formula)
+            candidate_scores: Dict mapping item indices to relevance scores (0-1 range).
+                Higher scores indicate better recommendations based on hybrid model.
+            query_idx: Index of the query item in the dataset (currently unused but
+                available for query-dependent diversity strategies).
+            n_recommendations: Number of items to select. If fewer candidates available,
+                returns all candidates.
+            diversity_weight: λ parameter controlling relevance vs diversity tradeoff (0-1).
+                - 0.0: Pure relevance ranking (no diversity, same as regular sorting)
+                - 0.5: Balanced relevance and diversity (recommended default)
+                - 1.0: Maximum diversity (may sacrifice relevance for novelty)
 
         Returns:
-            List of reranked indices
+            List of selected item indices in MMR-ranked order. First item is always
+            the most relevant, subsequent items balance relevance and diversity.
+
+        References:
+            Carbonell, J., & Goldstein, J. (1998). The Use of MMR, Diversity-Based
+            Reranking for Reordering Documents and Producing Summaries. SIGIR 1998.
+
+        Example:
+            Given candidate_scores = {1: 0.9, 2: 0.85, 3: 0.8} where items 1 and 2
+            are very similar, MMR may select [1, 3, 2] instead of [1, 2, 3] to
+            increase diversity in recommendations.
         """
         if len(candidate_scores) <= n_recommendations:
             return list(candidate_scores.keys())
@@ -716,8 +871,8 @@ class HybridManwhaRecommender:
                         dist = cosine(vec1, vec2)
                         similarity = 1 - dist
                         max_sim = max(max_sim, similarity)
-                    except:
-                        pass
+                    except (ValueError, RuntimeError) as e:
+                        logger.debug(f"Failed to compute cosine distance for MMR: {e}")
 
                 # MMR = λ * Relevance - (1-λ) * MaxSimilarity
                 mmr = diversity_weight * relevance - (1 - diversity_weight) * max_sim
@@ -794,9 +949,6 @@ class HybridManwhaRecommender:
 
         return results
 
-    # REVIEW: [HIGH] No bounds checking on manhwa_idx
-    # Recommendation: Add validation that manhwa_idx is within DataFrame bounds
-    # Location: get_user_preference_score function
     def get_user_preference_score(
         self,
         manhwa_idx: int,
@@ -810,10 +962,26 @@ class HybridManwhaRecommender:
         - disliked_genres: List of disliked genres
         - min_rating: Minimum rating threshold
         - preferred_status: Preferred status (e.g., completed, ongoing)
+
+        Args:
+            manhwa_idx: Index of manhwa in self.df
+            user_profile: User preference dictionary
+
+        Returns:
+            Preference score between 0 and 1
+
+        Raises:
+            ValueError: If manhwa_idx is invalid
         """
-        # REVIEW: [MEDIUM] Magic number 0.5 as base score - should be documented or configurable
-        # Location: Line 271
-        score = 0.5  # Base score
+        # Validate manhwa_idx
+        if not isinstance(manhwa_idx, (int, np.integer)):
+            raise ValueError(f"manhwa_idx must be an integer, got {type(manhwa_idx)}")
+        if manhwa_idx < 0:
+            raise ValueError(f"manhwa_idx must be non-negative, got {manhwa_idx}")
+        if manhwa_idx >= len(self.df):
+            raise ValueError(f"manhwa_idx {manhwa_idx} out of bounds for DataFrame with {len(self.df)} rows")
+
+        score = self.user_pref_weights['base_score']
 
         manhwa = self.df.iloc[manhwa_idx]
 
@@ -822,29 +990,26 @@ class HybridManwhaRecommender:
         disliked_genres = set(user_profile.get('disliked_genres', []))
         manhwa_genres = set(manhwa['genres'])
 
-        # REVIEW: [LOW] Magic weights (0.3, 0.2, 0.1) not documented or tuned
-        # Recommendation: Move to class constants with justification
-        # Location: Lines 283-300
         # Boost for liked genres
         overlap = len(manhwa_genres & liked_genres)
         if liked_genres:
-            score += 0.3 * (overlap / len(liked_genres))
+            score += self.user_pref_weights['genre_match'] * (overlap / len(liked_genres))
 
         # Penalty for disliked genres
         if manhwa_genres & disliked_genres:
-            score -= 0.3
+            score -= self.user_pref_weights['genre_penalty']
 
         # Rating filter
         min_rating = user_profile.get('min_rating', 0)
         if manhwa['rating'] >= min_rating:
-            score += 0.2
+            score += self.user_pref_weights['rating_boost']
         else:
-            score -= 0.3
+            score -= self.user_pref_weights['rating_penalty']
 
         # Status preference
         preferred_status = user_profile.get('preferred_status', [])
         if preferred_status and manhwa.get('status') in preferred_status:
-            score += 0.1
+            score += self.user_pref_weights['status_boost']
 
         # Normalize to 0-1
         score = max(0, min(1, score))
@@ -966,10 +1131,24 @@ class HybridManwhaRecommender:
                 if manhwa.get('status') not in filters['status']:
                     continue
 
-            # Year filter
+            # Year filter - basic implementation
+            # Note: Assumes 'year' field exists or can be extracted from 'years' field
             if 'min_year' in filters:
-                # TODO: Parse year from years field
-                pass
+                min_year = filters['min_year']
+                manhwa_year = manhwa.get('year')
+
+                # Try to extract year from 'years' field if 'year' not present
+                if manhwa_year is None and 'years' in manhwa and manhwa['years']:
+                    years_str = str(manhwa['years'])
+                    # Extract first 4-digit year from string
+                    import re
+                    year_match = re.search(r'\b(19|20)\d{2}\b', years_str)
+                    if year_match:
+                        manhwa_year = int(year_match.group())
+
+                # Apply filter if year was found
+                if manhwa_year is not None and manhwa_year < min_year:
+                    continue
 
             filtered_scores[idx] = score
 

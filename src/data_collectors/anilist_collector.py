@@ -5,6 +5,8 @@ Rate limit: 90 requests/minute
 """
 
 import asyncio
+import re
+import html
 from typing import List, Dict, Optional
 import logging
 from src.data_collectors.base_collector import (
@@ -34,6 +36,10 @@ class AniListCollector(BaseAPICollector):
 
     BASE_URL = "https://graphql.anilist.co"
     RATE_LIMIT_DELAY = 0.7  # ~85 requests/minute to stay under 90/min limit
+
+    # Minimum tag rank threshold (0-100 scale where 100 is highest confidence)
+    # 60 filters out low-confidence/spoiler tags while keeping relevant genre tags
+    MIN_TAG_RANK = 60
 
     async def _query(self, query: str, variables: Dict) -> Dict:
         """
@@ -186,10 +192,15 @@ class AniListCollector(BaseAPICollector):
         try:
             # Calculate rating (AniList uses 0-100 scale, convert to 0-5)
             rating = None
-            if media.get("meanScore"):
-                rating = round(media["meanScore"] / 20, 2)  # 100 -> 5.0
-            elif media.get("averageScore"):
-                rating = round(media["averageScore"] / 20, 2)
+            mean_score = media.get("meanScore") or media.get("averageScore")
+            if mean_score is not None:
+                # Validate rating is in expected 0-100 range
+                if 0 <= mean_score <= 100:
+                    rating = round(mean_score / 20, 2)  # 100 -> 5.0
+                else:
+                    logger.warning(f"Rating out of range for {media.get('id')}: {mean_score} (expected 0-100)")
+                    # Clamp to valid range
+                    rating = round(max(0, min(100, mean_score)) / 20, 2)
 
             # Format dates
             start_date = self._format_date(media.get("startDate"))
@@ -198,8 +209,9 @@ class AniListCollector(BaseAPICollector):
 
             # Extract genres and tags
             genres = media.get("genres", [])
+            # Only include high-confidence tags (MIN_TAG_RANK threshold filters spoilers/low-confidence)
             tags = [tag["name"] for tag in media.get("tags", [])
-                   if tag.get("rank", 0) >= 60]  # Only high-confidence tags
+                   if tag.get("rank", 0) >= self.MIN_TAG_RANK]
             all_tags = list(set(genres + tags))
 
             # Get alternative titles
@@ -228,7 +240,7 @@ class AniListCollector(BaseAPICollector):
                 "mal_id": media.get("idMal"),
                 "name": primary_title,
                 "altName": alt_name_str,
-                "description": media.get("description", "").replace("<br>", "\n").replace("<i>", "").replace("</i>", ""),
+                "description": self._clean_html(media.get("description", "")),
                 "rating": rating,
                 "popularity": media.get("popularity", 0),
                 "favourites": media.get("favourites", 0),
@@ -282,6 +294,46 @@ class AniListCollector(BaseAPICollector):
             return f"{year}-{month:02d}"
         else:
             return str(year)
+
+    @staticmethod
+    def _clean_html(text: Optional[str]) -> str:
+        """
+        Clean HTML tags and entities from text.
+
+        Removes all HTML tags and converts HTML entities to plain text.
+        Handles common cases like <br>, <i>, <b>, and other formatting tags.
+        Special handling for <br> tags which are converted to newlines.
+
+        Args:
+            text: Text potentially containing HTML
+
+        Returns:
+            Cleaned plain text with tags removed and entities decoded
+
+        Examples:
+            >>> _clean_html("Hello<br>World")
+            "Hello\\nWorld"
+            >>> _clean_html("Text with <i>italic</i> and <b>bold</b>")
+            "Text with italic and bold"
+            >>> _clean_html("&lt;Example&gt; &amp; Test")
+            "<Example> & Test"
+        """
+        if not text:
+            return ""
+
+        # Convert <br> tags to newlines first (preserve line breaks)
+        text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+
+        # Remove all other HTML tags and replace with space
+        text = re.sub(r'<[^>]+>', ' ', text)
+
+        # Convert HTML entities to plain text
+        text = html.unescape(text)
+
+        # Clean up multiple spaces (but preserve newlines)
+        text = re.sub(r'[ \t]+', ' ', text)
+
+        return text.strip()
 
     async def collect_all_manhwa(self, max_pages: Optional[int] = None) -> List[Dict]:
         """

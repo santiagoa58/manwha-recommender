@@ -86,8 +86,16 @@ class MangaUpdatesCollector(BaseAPICollector):
             if not series_ids:
                 return [], total_hits
 
-            # Fetch all details in parallel
-            tasks = [self.get_series_details(series_id) for series_id in series_ids]
+            # Limit concurrency to 10 simultaneous requests to avoid overwhelming the API
+            semaphore = asyncio.Semaphore(10)
+
+            async def fetch_with_limit(series_id: int):
+                """Fetch series details with concurrency limiting."""
+                async with semaphore:
+                    return await self.get_series_details(series_id)
+
+            # Fetch all details in parallel with concurrency limit
+            tasks = [fetch_with_limit(series_id) for series_id in series_ids]
             detailed_results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Filter out None results and exceptions

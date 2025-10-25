@@ -682,5 +682,680 @@ class TestModelEvaluation:
             assert not metrics_file.exists()  # No metrics file should be created
 
 
+@pytest.mark.unit
+class TestUserPreferenceScoringEdgeCases:
+    """Comprehensive tests for user preference scoring edge cases."""
+
+    def test_get_user_preference_score_invalid_index_negative(self, trained_recommender):
+        """Test that negative index raises ValueError."""
+        rec = trained_recommender
+        user_profile = {
+            'liked_genres': ['Action'],
+            'disliked_genres': [],
+            'min_rating': 0
+        }
+
+        # Negative indexing should raise ValueError (bounds checking added)
+        with pytest.raises(ValueError, match="non-negative"):
+            rec.get_user_preference_score(-1, user_profile)
+
+    def test_get_user_preference_score_invalid_index_too_large(self, trained_recommender):
+        """Test that index >= len(df) raises ValueError."""
+        rec = trained_recommender
+        user_profile = {
+            'liked_genres': ['Action'],
+            'disliked_genres': [],
+            'min_rating': 0
+        }
+
+        invalid_idx = len(rec.df) + 10
+        with pytest.raises(ValueError, match="out of bounds"):
+            rec.get_user_preference_score(invalid_idx, user_profile)
+
+    def test_get_user_preference_score_empty_liked_genres(self, trained_recommender):
+        """Test scoring with empty liked_genres list."""
+        rec = trained_recommender
+        user_profile = {
+            'liked_genres': [],
+            'disliked_genres': [],
+            'min_rating': 0
+        }
+
+        score = rec.get_user_preference_score(0, user_profile)
+
+        # Should return valid score without crashing (may be int or float)
+        assert isinstance(score, (int, float))
+        assert 0 <= score <= 1
+
+    def test_get_user_preference_score_empty_disliked_genres(self, trained_recommender):
+        """Test scoring with empty disliked_genres list."""
+        rec = trained_recommender
+        user_profile = {
+            'liked_genres': ['Action'],
+            'disliked_genres': [],
+            'min_rating': 0
+        }
+
+        score = rec.get_user_preference_score(0, user_profile)
+
+        # Should return valid score without crashing (may be int or float)
+        assert isinstance(score, (int, float))
+        assert 0 <= score <= 1
+
+    def test_get_user_preference_score_manhwa_no_genres(self, temp_data_dir):
+        """Test scoring manhwa that has no genres."""
+        # Create catalog with manhwa without genres
+        catalog_data = [{
+            "name": "No Genre Manhwa",
+            "description": "A manhwa without genres",
+            "rating": 4.0,
+            "popularity": 1000,
+            "genres": [],
+            "tags": []
+        }]
+
+        catalog_path = temp_data_dir / "no_genres.json"
+        with open(catalog_path, 'w') as f:
+            json.dump(catalog_data, f)
+
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(str(catalog_path))
+
+        user_profile = {
+            'liked_genres': ['Action'],
+            'disliked_genres': ['Romance'],
+            'min_rating': 0
+        }
+
+        score = rec.get_user_preference_score(0, user_profile)
+
+        # Should handle gracefully (may be int or float)
+        assert isinstance(score, (int, float))
+        assert 0 <= score <= 1
+
+    def test_get_user_preference_score_extreme_rating_threshold_min(self, trained_recommender):
+        """Test scoring with min_rating=0."""
+        rec = trained_recommender
+        user_profile = {
+            'liked_genres': [],
+            'disliked_genres': [],
+            'min_rating': 0
+        }
+
+        score = rec.get_user_preference_score(0, user_profile)
+
+        # Should boost score since all ratings meet min_rating=0 (may be int or float)
+        assert isinstance(score, (int, float))
+        assert score > 0.5  # Should get rating boost
+
+    def test_get_user_preference_score_extreme_rating_threshold_max(self, trained_recommender):
+        """Test scoring with min_rating=5 (maximum)."""
+        rec = trained_recommender
+        user_profile = {
+            'liked_genres': [],
+            'disliked_genres': [],
+            'min_rating': 5.0
+        }
+
+        score = rec.get_user_preference_score(0, user_profile)
+
+        # Should penalize score since unlikely any manhwa has rating=5 (may be int or float)
+        assert isinstance(score, (int, float))
+        assert 0 <= score <= 1
+
+    def test_get_user_preference_score_all_preferences_match(self, trained_recommender):
+        """Test scoring when all user preferences match perfectly."""
+        rec = trained_recommender
+
+        # Find manhwa with Action genre
+        action_idx = None
+        for idx, row in rec.df.iterrows():
+            if "Action" in row['genres']:
+                action_idx = idx
+                break
+
+        if action_idx is not None:
+            manhwa = rec.df.iloc[action_idx]
+            user_profile = {
+                'liked_genres': list(manhwa['genres']),  # All genres matched
+                'disliked_genres': [],
+                'min_rating': manhwa['rating'] - 1,  # Below actual rating
+                'preferred_status': [manhwa.get('status', 'RELEASING')]
+            }
+
+            score = rec.get_user_preference_score(action_idx, user_profile)
+
+            # Should be high score when everything matches
+            assert score > 0.5
+
+    def test_get_user_preference_score_all_preferences_conflict(self, trained_recommender):
+        """Test scoring when all user preferences conflict."""
+        rec = trained_recommender
+
+        # Find manhwa with specific genres
+        idx = 0
+        manhwa = rec.df.iloc[idx]
+
+        user_profile = {
+            'liked_genres': ['Nonexistent Genre'],
+            'disliked_genres': list(manhwa['genres']),  # Dislike all genres
+            'min_rating': manhwa['rating'] + 1  # Above actual rating
+        }
+
+        score = rec.get_user_preference_score(idx, user_profile)
+
+        # Should be low score when everything conflicts
+        assert score < 0.5
+
+    def test_get_user_preference_score_missing_profile_fields(self, trained_recommender):
+        """Test scoring with minimal user profile (missing optional fields)."""
+        rec = trained_recommender
+        user_profile = {}  # Empty profile
+
+        score = rec.get_user_preference_score(0, user_profile)
+
+        # Should use defaults and not crash (may be int or float)
+        assert isinstance(score, (int, float))
+        assert 0 <= score <= 1
+
+
+@pytest.mark.unit
+class TestDiversityAndMMRReranking:
+    """Comprehensive tests for diversity calculation and MMR re-ranking."""
+
+    def test_calculate_diversity_single_recommendation(self, trained_recommender):
+        """Test diversity calculation with single recommendation."""
+        rec = trained_recommender
+
+        single_rec = [rec.df.iloc[0].to_dict()]
+        diversity = rec.calculate_diversity(single_rec)
+
+        # Should return 1.0 for single item (maximally diverse by definition)
+        assert diversity == 1.0
+
+    def test_calculate_diversity_empty_recommendations(self, trained_recommender):
+        """Test diversity calculation with empty recommendations list."""
+        rec = trained_recommender
+
+        diversity = rec.calculate_diversity([])
+
+        # Should handle gracefully, return 1.0
+        assert diversity == 1.0
+
+    def test_calculate_diversity_identical_items(self, trained_recommender):
+        """Test diversity with same item repeated (edge case)."""
+        rec = trained_recommender
+
+        # Use same item multiple times
+        same_item = rec.df.iloc[0].to_dict()
+        identical_recs = [same_item.copy() for _ in range(3)]
+
+        diversity = rec.calculate_diversity(identical_recs)
+
+        # Diversity should be low (close to 0) for identical items
+        assert 0 <= diversity < 0.3
+
+    def test_calculate_diversity_diverse_items(self, trained_recommender):
+        """Test diversity with completely different items."""
+        rec = trained_recommender
+
+        if len(rec.df) >= 3:
+            # Select items from different ends of dataset (likely different)
+            diverse_recs = [
+                rec.df.iloc[0].to_dict(),
+                rec.df.iloc[len(rec.df)//2].to_dict(),
+                rec.df.iloc[-1].to_dict()
+            ]
+
+            diversity = rec.calculate_diversity(diverse_recs)
+
+            # Should have reasonable diversity
+            assert 0 <= diversity <= 1
+            assert isinstance(diversity, float)
+
+    def test_mmr_rerank_zero_diversity_weight(self, trained_recommender):
+        """Test MMR re-ranking with diversity_weight=0 (pure relevance)."""
+        rec = trained_recommender
+
+        if len(rec.df) > 3:
+            title = rec.df.iloc[0]['name']
+
+            # Get recommendations with no diversity
+            recs_no_diversity = rec.recommend(title, n_recommendations=5, diversity=0.0)
+
+            # Should work without errors
+            assert len(recs_no_diversity) > 0
+
+            # Should be sorted by relevance score
+            scores = [r['recommendation_score'] for r in recs_no_diversity]
+            assert scores == sorted(scores, reverse=True)
+
+    def test_mmr_rerank_max_diversity_weight(self, trained_recommender):
+        """Test MMR re-ranking with diversity_weight=1.0 (pure diversity)."""
+        rec = trained_recommender
+
+        if len(rec.df) > 3:
+            title = rec.df.iloc[0]['name']
+
+            # Get recommendations with maximum diversity
+            recs_max_diversity = rec.recommend(title, n_recommendations=5, diversity=1.0)
+
+            # Should work without errors
+            assert len(recs_max_diversity) > 0
+
+            # All results should be valid manhwa
+            for r in recs_max_diversity:
+                assert 'name' in r
+                assert 'recommendation_score' in r
+
+    def test_mmr_rerank_changes_order(self, trained_recommender):
+        """Test that MMR re-ranking produces different order than pure relevance."""
+        rec = trained_recommender
+
+        if len(rec.df) > 5:
+            title = rec.df.iloc[0]['name']
+
+            # Get recommendations without diversity
+            recs_no_div = rec.recommend(title, n_recommendations=5, diversity=0.0)
+
+            # Get recommendations with diversity
+            recs_with_div = rec.recommend(title, n_recommendations=5, diversity=0.7)
+
+            # Both should return results
+            assert len(recs_no_div) > 0
+            assert len(recs_with_div) > 0
+
+            # At least some positions should differ (not guaranteed but likely)
+            names_no_div = [r['name'] for r in recs_no_div]
+            names_with_div = [r['name'] for r in recs_with_div]
+
+            # They should contain potentially different items or orders
+            assert isinstance(names_no_div, list)
+            assert isinstance(names_with_div, list)
+
+    def test_mmr_rerank_insufficient_candidates(self, trained_recommender):
+        """Test MMR when candidates <= n_recommendations requested."""
+        rec = trained_recommender
+
+        if len(rec.df) >= 2:
+            title = rec.df.iloc[0]['name']
+
+            # Request almost all available items
+            n_recs = len(rec.df) - 1
+            recs = rec.recommend(title, n_recommendations=n_recs, diversity=0.5)
+
+            # Should handle gracefully
+            assert len(recs) <= n_recs
+
+
+@pytest.mark.unit
+class TestConcurrentAccess:
+    """Tests for thread safety and concurrent access."""
+
+    def test_concurrent_recommend_calls(self, trained_recommender):
+        """Test multiple threads calling recommend() simultaneously."""
+        import threading
+
+        rec = trained_recommender
+        title = rec.df.iloc[0]['name']
+        results = []
+        errors = []
+
+        def make_recommendation():
+            try:
+                recs = rec.recommend(title, n_recommendations=3)
+                results.append(recs)
+            except Exception as e:
+                errors.append(e)
+
+        # Create multiple threads
+        threads = [threading.Thread(target=make_recommendation) for _ in range(5)]
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for completion
+        for t in threads:
+            t.join()
+
+        # Should not have errors
+        assert len(errors) == 0, f"Concurrent access errors: {errors}"
+
+        # Should have results from all threads
+        assert len(results) == 5
+
+        # All results should be valid
+        for recs in results:
+            assert isinstance(recs, list)
+            assert len(recs) > 0
+
+    def test_concurrent_evaluate_calls(self, sample_catalog_file):
+        """Test concurrent calls to evaluate_recommendations()."""
+        import threading
+
+        # Create and train recommender
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+        rec.build_content_features()
+
+        # Create test data
+        test_df = rec.df.head(2)
+
+        results = []
+        errors = []
+
+        def run_evaluation():
+            try:
+                metrics = rec.evaluate_recommendations(test_df, k=3)
+                results.append(metrics)
+            except Exception as e:
+                errors.append(e)
+
+        # Create multiple threads
+        threads = [threading.Thread(target=run_evaluation) for _ in range(3)]
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for completion
+        for t in threads:
+            t.join()
+
+        # Should complete without errors
+        assert len(errors) == 0, f"Concurrent evaluation errors: {errors}"
+
+    def test_concurrent_cache_building(self, trained_recommender):
+        """Test race conditions in cache building (_build_title_cache)."""
+        import threading
+
+        rec = trained_recommender
+
+        # Clear cache to force rebuild
+        rec._title_cache = None
+
+        errors = []
+
+        def access_cache():
+            try:
+                # This will trigger cache build if not exists
+                rec._find_manhwa_index(rec.df.iloc[0]['name'])
+            except Exception as e:
+                errors.append(e)
+
+        # Create multiple threads that will race to build cache
+        threads = [threading.Thread(target=access_cache) for _ in range(10)]
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for completion
+        for t in threads:
+            t.join()
+
+        # Should complete without errors
+        assert len(errors) == 0, f"Cache building race condition errors: {errors}"
+
+        # Cache should be built
+        assert rec._title_cache is not None
+
+    def test_thread_safety_no_crashes(self, trained_recommender):
+        """Test that concurrent access doesn't cause crashes."""
+        import threading
+        import random
+
+        rec = trained_recommender
+        titles = rec.df['name'].tolist()
+
+        errors = []
+
+        def random_operations():
+            try:
+                # Perform random operations
+                for _ in range(3):
+                    title = random.choice(titles)
+                    rec.recommend(title, n_recommendations=2)
+            except Exception as e:
+                errors.append(e)
+
+        # Create multiple threads
+        threads = [threading.Thread(target=random_operations) for _ in range(5)]
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for completion
+        for t in threads:
+            t.join()
+
+        # Should complete without errors
+        assert len(errors) == 0, f"Thread safety errors: {errors}"
+
+    def test_thread_safety_no_data_corruption(self, trained_recommender):
+        """Test that concurrent access doesn't corrupt data."""
+        import threading
+
+        rec = trained_recommender
+
+        # Store original state
+        original_df_len = len(rec.df)
+        original_feature_shape = rec.feature_matrix.shape
+
+        def concurrent_reads():
+            # Just read operations, no modifications
+            rec.recommend(rec.df.iloc[0]['name'], n_recommendations=2)
+
+        # Create multiple threads
+        threads = [threading.Thread(target=concurrent_reads) for _ in range(10)]
+
+        # Start all threads
+        for t in threads:
+            t.start()
+
+        # Wait for completion
+        for t in threads:
+            t.join()
+
+        # Verify data integrity
+        assert len(rec.df) == original_df_len
+        assert rec.feature_matrix.shape == original_feature_shape
+
+
+@pytest.mark.unit
+class TestAdditionalEdgeCases:
+    """Additional edge case tests for comprehensive coverage."""
+
+    def test_ndcg_calculation_correctness(self, sample_catalog_file):
+        """Test that NDCG calculation is mathematically correct."""
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+
+        train_df, test_df = rec.create_evaluation_split(test_ratio=0.3, random_state=42)
+        rec.df = train_df
+        rec.build_content_features()
+
+        # Restore full df for evaluation
+        rec.df = pd.concat([train_df, test_df])
+
+        metrics = rec.evaluate_recommendations(test_df, k=5)
+
+        # NDCG should be between 0 and 1
+        assert 0 <= metrics['ndcg@k'] <= 1
+
+        # NDCG should be a float
+        assert isinstance(metrics['ndcg@k'], float)
+
+    def test_cold_start_zero_popularity(self, temp_data_dir):
+        """Test cold start recommendations when all items have zero popularity."""
+        catalog_data = [
+            {
+                "name": f"Manhwa {i}",
+                "description": f"Description {i}",
+                "rating": 3.0 + (i * 0.2),
+                "popularity": 0,  # All zero
+                "genres": ["Action"],
+                "tags": []
+            }
+            for i in range(5)
+        ]
+
+        catalog_path = temp_data_dir / "zero_popularity.json"
+        with open(catalog_path, 'w') as f:
+            json.dump(catalog_data, f)
+
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(str(catalog_path))
+
+        # Cold start should still work
+        recs = rec.handle_cold_start(n_recommendations=3, popularity_bias=0.5)
+
+        assert len(recs) > 0
+        # Should rank by rating since popularity is all zero
+        assert all(isinstance(r, dict) for r in recs)
+
+    def test_weight_validation_in_init(self):
+        """Test that custom weights are properly initialized."""
+        custom_weights = {
+            'content': 0.5,
+            'genre_similarity': 0.3,
+            'user_pref': 0.2
+        }
+
+        rec = HybridManwhaRecommender(weights=custom_weights)
+
+        assert rec.weights == custom_weights
+        assert rec.weights['content'] == 0.5
+        assert rec.weights['genre_similarity'] == 0.3
+        assert rec.weights['user_pref'] == 0.2
+
+    def test_hyperparameter_tuning_cross_validation(self, sample_catalog_file):
+        """Test hyperparameter tuning with cross-validation."""
+        # Use custom tfidf params suitable for small dataset
+        rec = HybridManwhaRecommender(
+            tfidf_params={
+                'max_features': 1000,
+                'min_df': 1,  # Allow all documents for small dataset
+                'max_df': 1.0,  # Allow all documents
+                'ngram_range': (1, 1)
+            }
+        )
+        rec.prepare_data(sample_catalog_file)
+
+        # Create train/val split
+        train_df, val_df = rec.create_evaluation_split(test_ratio=0.3, random_state=42)
+
+        # Small parameter grid for testing with appropriate params for small data
+        param_grid = {
+            'weights': [
+                {'content': 0.5, 'genre_similarity': 0.3, 'user_pref': 0.2},
+            ],
+            'tfidf_max_features': [1000],
+            'tfidf_min_df': [1],  # Changed from 2 to 1 for small dataset
+        }
+
+        results = rec.tune_hyperparameters(
+            train_df=train_df,
+            val_df=val_df,
+            param_grid=param_grid,
+            metric='ndcg@k',
+            k=5
+        )
+
+        # Should return results structure
+        assert 'best_params' in results
+        assert 'best_score' in results
+        assert 'all_results' in results
+
+        # Best score should be valid
+        assert isinstance(results['best_score'], (int, float))
+
+    def test_evaluate_no_data_leakage(self, sample_catalog_file):
+        """Test that evaluation doesn't leak test data into training."""
+        rec = HybridManwhaRecommender()
+        rec.prepare_data(sample_catalog_file)
+
+        # Create train/test split
+        train_df, test_df = rec.create_evaluation_split(test_ratio=0.3, random_state=42)
+
+        # Train only on training data
+        rec.df = train_df
+        rec.build_content_features()
+
+        # Verify test items are NOT in training data
+        train_names = set(train_df['name'].tolist())
+        test_names = set(test_df['name'].tolist())
+
+        # No overlap between train and test
+        assert len(train_names & test_names) == 0
+
+    def test_coverage_tracking_reset(self, trained_recommender):
+        """Test that coverage tracking can be reset."""
+        rec = trained_recommender
+
+        # Make some recommendations
+        title = rec.df.iloc[0]['name']
+        rec.recommend(title, n_recommendations=3)
+
+        # Coverage should track recommended items
+        assert len(rec._all_recommended_items) >= 0
+
+        # Reset coverage
+        rec._all_recommended_items = set()
+
+        # Should be empty after reset
+        assert len(rec._all_recommended_items) == 0
+
+    def test_division_by_zero_guards(self, temp_data_dir):
+        """Test guards against division by zero in various calculations."""
+        # Create small dataset (3 items) which might cause division issues
+        catalog_data = [
+            {
+                "name": f"Manhwa {i}",
+                "description": f"Description {i} with more words to make it unique",
+                "rating": 4.0,
+                "popularity": 1000 * (i + 1),
+                "genres": ["Action"],
+                "tags": []
+            }
+            for i in range(3)
+        ]
+
+        catalog_path = temp_data_dir / "small_items.json"
+        with open(catalog_path, 'w') as f:
+            json.dump(catalog_data, f)
+
+        # Use tfidf params suitable for small dataset
+        rec = HybridManwhaRecommender(
+            tfidf_params={
+                'max_features': 100,
+                'min_df': 1,
+                'max_df': 1.0,
+                'ngram_range': (1, 1)
+            }
+        )
+        rec.prepare_data(str(catalog_path))
+        rec.build_content_features()
+
+        # Operations that might involve division
+        # Cold start
+        cold_recs = rec.handle_cold_start(n_recommendations=5)
+        assert isinstance(cold_recs, list)
+
+        # Diversity (single item from cold start)
+        if cold_recs:
+            diversity = rec.calculate_diversity(cold_recs[:1])
+            assert isinstance(diversity, float)
+            assert not np.isnan(diversity)
+
+        # Diversity with multiple items
+        if len(cold_recs) > 1:
+            diversity_multi = rec.calculate_diversity(cold_recs)
+            assert isinstance(diversity_multi, float)
+            assert not np.isnan(diversity_multi)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

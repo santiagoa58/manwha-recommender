@@ -17,10 +17,11 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from httpx import HTTPStatusError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 import logging
 
-logging.basicConfig(level=logging.INFO)
+# Logger configuration should be done by the application, not the library
 logger = logging.getLogger(__name__)
 
 
@@ -139,10 +140,36 @@ class BaseAPICollector(ABC):
             await asyncio.sleep(self.rate_limit_delay - elapsed)
         self.last_request_time = time.time()
 
+    @staticmethod
+    def _is_retryable_error(exception: Exception) -> bool:
+        """
+        Determine if an exception is retryable.
+
+        Only retry server errors (5xx) and rate limit errors (429).
+        Client errors (4xx) like 404, 400, 401 should not be retried.
+
+        Args:
+            exception: The exception to check
+
+        Returns:
+            True if the error should be retried, False otherwise
+        """
+        if isinstance(exception, RateLimitError):
+            return True
+        if isinstance(exception, NetworkError):
+            # Check if it's a wrapped HTTPStatusError with 5xx or 429
+            if hasattr(exception, '__cause__') and isinstance(exception.__cause__, HTTPStatusError):
+                status_code = exception.__cause__.response.status_code
+                # Retry 5xx (server errors) and 429 (rate limit)
+                return status_code >= 500 or status_code == 429
+            # Retry other network errors (connection issues, timeouts)
+            return True
+        return False
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((httpx.HTTPError, NetworkError))
+        retry=retry_if_exception(_is_retryable_error)
     )
     async def _request(
         self,
@@ -277,14 +304,32 @@ class BaseAPICollector(ABC):
 
     def _safe_float(self, value: Any, default: Optional[float] = None) -> Optional[float]:
         """
-        Safely convert value to float.
+        Safely convert value to float with fallback handling.
+
+        Behavior:
+        - Returns None if value is None and no default is provided
+        - Returns default if value is None or conversion fails
+        - Successfully converts numeric strings, integers, and floats
+
+        Note: Default is None to allow distinguishing between "no value" and "zero value".
+        For numeric calculations where 0 is preferred, pass default=0.0 explicitly.
 
         Args:
-            value: Value to convert
-            default: Default value if conversion fails
+            value: Value to convert (can be None, str, int, float)
+            default: Default value if conversion fails (default: None)
 
         Returns:
-            Float value or default
+            Float value or default (may be None if default is None)
+
+        Examples:
+            >>> _safe_float("3.14")
+            3.14
+            >>> _safe_float(None)
+            None
+            >>> _safe_float(None, default=0.0)
+            0.0
+            >>> _safe_float("invalid", default=0.0)
+            0.0
         """
         if value is None:
             return default
@@ -295,14 +340,33 @@ class BaseAPICollector(ABC):
 
     def _safe_int(self, value: Any, default: Optional[int] = None) -> Optional[int]:
         """
-        Safely convert value to int.
+        Safely convert value to int with fallback handling.
+
+        Behavior:
+        - Returns None if value is None and no default is provided
+        - Returns default if value is None or conversion fails
+        - Successfully converts numeric strings and integers
+        - Truncates floats to integers (3.9 -> 3)
+
+        Note: Default is None to allow distinguishing between "no value" and "zero value".
+        For numeric calculations where 0 is preferred, pass default=0 explicitly.
 
         Args:
-            value: Value to convert
-            default: Default value if conversion fails
+            value: Value to convert (can be None, str, int, float)
+            default: Default value if conversion fails (default: None)
 
         Returns:
-            Int value or default
+            Int value or default (may be None if default is None)
+
+        Examples:
+            >>> _safe_int("42")
+            42
+            >>> _safe_int(None)
+            None
+            >>> _safe_int(None, default=0)
+            0
+            >>> _safe_int("invalid", default=0)
+            0
         """
         if value is None:
             return default
