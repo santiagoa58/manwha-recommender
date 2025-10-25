@@ -27,34 +27,34 @@ class ManwhaDeduplicator:
     # FIXED: Pre-compiled regex patterns for performance (avoid recompilation on every call)
     # Noise patterns to remove from titles (manhwa, webtoon, official tags)
     NOISE_PATTERNS = [
-        re.compile(r'\s*\(manhwa\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[manhwa\]\s*', re.IGNORECASE),
-        re.compile(r'\s*\(webtoon\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[webtoon\]\s*', re.IGNORECASE),
-        re.compile(r'\s*\(official\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[official\]\s*', re.IGNORECASE),
+        re.compile(r"\s*\(manhwa\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[manhwa\]\s*", re.IGNORECASE),
+        re.compile(r"\s*\(webtoon\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[webtoon\]\s*", re.IGNORECASE),
+        re.compile(r"\s*\(official\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[official\]\s*", re.IGNORECASE),
     ]
 
     # Season/part/volume patterns for better matching across series versions
     SEASON_PART_PATTERNS = [
-        re.compile(r'\s*\(season\s+\d+\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[season\s+\d+\]\s*', re.IGNORECASE),
-        re.compile(r'\s*\(part\s+\d+\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[part\s+\d+\]\s*', re.IGNORECASE),
-        re.compile(r'\s*\(vol\.?\s+\d+\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[vol\.?\s+\d+\]\s*', re.IGNORECASE),
-        re.compile(r'\s*\(s\d+\)\s*', re.IGNORECASE),
-        re.compile(r'\s*\[s\d+\]\s*', re.IGNORECASE),
+        re.compile(r"\s*\(season\s+\d+\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[season\s+\d+\]\s*", re.IGNORECASE),
+        re.compile(r"\s*\(part\s+\d+\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[part\s+\d+\]\s*", re.IGNORECASE),
+        re.compile(r"\s*\(vol\.?\s+\d+\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[vol\.?\s+\d+\]\s*", re.IGNORECASE),
+        re.compile(r"\s*\(s\d+\)\s*", re.IGNORECASE),
+        re.compile(r"\s*\[s\d+\]\s*", re.IGNORECASE),
     ]
 
     # FIXED: Configurable source priority with documented rationale
     # Sources are prioritized based on metadata completeness and accuracy
     DEFAULT_SOURCE_PRIORITY = {
-        'MangaUpdates': 4,  # Most comprehensive metadata for manga/manhwa
-        'AniList': 3,       # Strong community data, good API coverage
-        'MyAnimeList': 2,   # Large database but sometimes outdated
-        'Anime-Planet': 1,  # Good for niche titles
-        'Reddit': 0         # Community-sourced, less structured
+        "MangaUpdates": 4,  # Most comprehensive metadata for manga/manhwa
+        "AniList": 3,  # Strong community data, good API coverage
+        "MyAnimeList": 2,  # Large database but sometimes outdated
+        "Anime-Planet": 1,  # Good for niche titles
+        "Reddit": 0,  # Community-sourced, less structured
     }
 
     def __init__(self, source_priority: Optional[Dict[str, int]] = None):
@@ -68,7 +68,9 @@ class ManwhaDeduplicator:
         """
         self.duplicate_groups = []
         self.merged_entries = []
-        self.source_priority = source_priority if source_priority is not None else self.DEFAULT_SOURCE_PRIORITY
+        self.source_priority = (
+            source_priority if source_priority is not None else self.DEFAULT_SOURCE_PRIORITY
+        )
 
     def normalize_title(self, title: str) -> str:
         """
@@ -89,26 +91,40 @@ class ManwhaDeduplicator:
         # FIXED: Use pre-compiled patterns from class constants (major performance improvement)
         # Remove noise patterns (manhwa, webtoon, official)
         for pattern in self.NOISE_PATTERNS:
-            title = pattern.sub('', title)
+            title = pattern.sub("", title)
 
         # Remove season/part/volume patterns for better matching
         # This allows "Tower of God Season 1" to match "Tower of God Season 2"
         for pattern in self.SEASON_PART_PATTERNS:
-            title = pattern.sub('', title)
+            title = pattern.sub("", title)
 
         # Normalize whitespace
-        title = re.sub(r'\s+', ' ', title)
+        title = re.sub(r"\s+", " ", title)
         title = title.strip()
 
         # Remove common suffixes (including season/part suffixes)
         suffixes = [
-            'manhwa', 'webtoon', 'part 1', 'part 2', 'part 3', 'part 4', 'part 5',
-            'season 1', 'season 2', 'season 3', 'season 4', 'season 5',
-            's1', 's2', 's3', 's4', 's5'
+            "manhwa",
+            "webtoon",
+            "part 1",
+            "part 2",
+            "part 3",
+            "part 4",
+            "part 5",
+            "season 1",
+            "season 2",
+            "season 3",
+            "season 4",
+            "season 5",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "s5",
         ]
         for suffix in suffixes:
             if title.endswith(suffix):
-                title = title[:-len(suffix)].strip()
+                title = title[: -len(suffix)].strip()
 
         return title
 
@@ -131,7 +147,7 @@ class ManwhaDeduplicator:
 
         # Index entries by normalized title for exact matches
         for entry in entries:
-            norm_title = self.normalize_title(entry.get('name', ''))
+            norm_title = self.normalize_title(entry.get("name", ""))
             title_to_entries[norm_title].append(entry)
 
         # Group exact matches
@@ -171,14 +187,16 @@ class ManwhaDeduplicator:
         title_entry_map = {}
         for entry in entries:
             entry_id = self._get_entry_id(entry)
-            title = entry.get('name', '')
+            title = entry.get("name", "")
             title_entry_map[entry_id] = (title, entry)
 
         # Use blocking strategy: group entries by normalized 2-char prefix
         # This reduces comparisons from O(n²) to O(n*k) where k = avg block size
         blocks = self._create_blocks(title_entry_map)
 
-        logger.info(f"Created {len(blocks)} blocks for fuzzy matching (avg size: {sum(len(b) for b in blocks.values())/max(len(blocks), 1):.1f})")
+        logger.info(
+            f"Created {len(blocks)} blocks for fuzzy matching (avg size: {sum(len(b) for b in blocks.values())/max(len(blocks), 1):.1f})"
+        )
 
         fuzzy_groups = []
         processed = set()
@@ -203,7 +221,7 @@ class ManwhaDeduplicator:
                     choices,
                     scorer=fuzz.token_sort_ratio,
                     score_cutoff=self.TITLE_SIMILARITY_THRESHOLD,
-                    limit=10
+                    limit=10,
                 )
 
                 if matches:
@@ -304,7 +322,7 @@ class ManwhaDeduplicator:
         if words:
             first_word = words[0]
             # If first word is an article, use second word
-            if first_word in ('the', 'a', 'an') and len(words) > 1:
+            if first_word in ("the", "a", "an") and len(words) > 1:
                 first_word = words[1]
 
             # Use first 3 chars of first significant word
@@ -320,17 +338,17 @@ class ManwhaDeduplicator:
         FIXED: Replaced non-deterministic id(entry) with deterministic hash based on
         content (name + source). This ensures reproducibility across runs.
         """
-        if 'id' in entry:
-            return entry['id']
+        if "id" in entry:
+            return entry["id"]
 
         # FIXED: Generate deterministic ID using MD5 hash of name + source
         # This ensures the same entry always gets the same ID across runs
-        name = entry.get('name', '')
-        source = entry.get('source', '')
+        name = entry.get("name", "")
+        source = entry.get("source", "")
         content = f"{name}_{source}"
 
         # Generate MD5 hash for deterministic ID
-        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+        content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
         return f"hash_{content_hash[:16]}"  # Use first 16 chars for brevity
 
     def _normalize_rating(self, rating: float, source: str) -> Optional[float]:
@@ -385,8 +403,7 @@ class ManwhaDeduplicator:
             # Already on 0-5 scale, validate range
             if rating < 0 or rating > 5:
                 logger.warning(
-                    f"Out-of-range rating for source {source}: {rating} "
-                    f"(expected 0-5)"
+                    f"Out-of-range rating for source {source}: {rating} " f"(expected 0-5)"
                 )
                 # Clamp to valid range
                 rating = max(0, min(rating, 5))
@@ -395,8 +412,7 @@ class ManwhaDeduplicator:
             # Must be on 0-10 scale, validate and normalize
             if rating < 0 or rating > 10:
                 logger.warning(
-                    f"Out-of-range rating for source {source}: {rating} "
-                    f"(expected 0-10)"
+                    f"Out-of-range rating for source {source}: {rating} " f"(expected 0-10)"
                 )
                 # Clamp to valid range
                 rating = max(0, min(rating, 10))
@@ -441,51 +457,49 @@ class ManwhaDeduplicator:
         # FIXED: Use instance source_priority (configurable via constructor)
         # Sort by source priority
         sorted_group = sorted(
-            group,
-            key=lambda x: self.source_priority.get(x.get('source', ''), 0),
-            reverse=True
+            group, key=lambda x: self.source_priority.get(x.get("source", ""), 0), reverse=True
         )
 
         # Start with highest priority entry
         merged = sorted_group[0].copy()
 
         # Collect all sources
-        merged['sources'] = [entry.get('source') for entry in group]
-        merged['source_count'] = len(set(merged['sources']))
+        merged["sources"] = [entry.get("source") for entry in group]
+        merged["source_count"] = len(set(merged["sources"]))
 
         # Merge IDs from all sources
-        merged['ids'] = {
-            'primary': merged.get('id'),
-            'anilist': None,
-            'mal': None,
-            'mangaupdates': None,
+        merged["ids"] = {
+            "primary": merged.get("id"),
+            "anilist": None,
+            "mal": None,
+            "mangaupdates": None,
         }
 
         for entry in group:
-            if 'anilist_' in entry.get('id', ''):
-                merged['ids']['anilist'] = entry.get('id')
-            if 'mal_' in entry.get('id', ''):
-                merged['ids']['mal'] = entry.get('id')
-                merged['ids']['mal_id'] = entry.get('mal_id')
-            if 'mu_' in entry.get('id', ''):
-                merged['ids']['mangaupdates'] = entry.get('id')
-                merged['ids']['mangaupdates_id'] = entry.get('mangaupdates_id')
+            if "anilist_" in entry.get("id", ""):
+                merged["ids"]["anilist"] = entry.get("id")
+            if "mal_" in entry.get("id", ""):
+                merged["ids"]["mal"] = entry.get("id")
+                merged["ids"]["mal_id"] = entry.get("mal_id")
+            if "mu_" in entry.get("id", ""):
+                merged["ids"]["mangaupdates"] = entry.get("id")
+                merged["ids"]["mangaupdates_id"] = entry.get("mangaupdates_id")
 
         # Merge titles - collect all alternative names
         alt_names = set()
         for entry in group:
-            name = entry.get('name')
-            if name and name != merged['name']:
+            name = entry.get("name")
+            if name and name != merged["name"]:
                 alt_names.add(name)
 
-            alt_name = entry.get('altName', '')
+            alt_name = entry.get("altName", "")
             if alt_name:
-                for alt in alt_name.split(','):
+                for alt in alt_name.split(","):
                     alt = alt.strip()
-                    if alt and alt != merged['name']:
+                    if alt and alt != merged["name"]:
                         alt_names.add(alt)
 
-        merged['altName'] = ', '.join(sorted(alt_names)[:5])  # Limit to 5 most relevant
+        merged["altName"] = ", ".join(sorted(alt_names)[:5])  # Limit to 5 most relevant
 
         # Merge ratings - weighted average based on vote count
         # FIXED: Added rating scale validation and division by zero guard
@@ -493,13 +507,15 @@ class ManwhaDeduplicator:
         weights = []
 
         for entry in group:
-            rating = entry.get('rating')
+            rating = entry.get("rating")
             if rating:
                 # FIXED: Validate and normalize rating to 0-5 scale
-                normalized_rating = self._normalize_rating(rating, entry.get('source', ''))
+                normalized_rating = self._normalize_rating(rating, entry.get("source", ""))
                 if normalized_rating is not None:
                     # Weight by popularity/votes
-                    weight = entry.get('rated_by', entry.get('scored_by', entry.get('popularity', 1)))
+                    weight = entry.get(
+                        "rated_by", entry.get("scored_by", entry.get("popularity", 1))
+                    )
                     if weight and weight > 0:
                         ratings.append(normalized_rating)
                         weights.append(weight)
@@ -509,62 +525,70 @@ class ManwhaDeduplicator:
             total_weight = sum(weights)
             if total_weight > 0:
                 weighted_rating = sum(r * w for r, w in zip(ratings, weights)) / total_weight
-                merged['rating'] = round(weighted_rating, 2)
-                merged['rating_sources'] = len(ratings)
+                merged["rating"] = round(weighted_rating, 2)
+                merged["rating_sources"] = len(ratings)
             else:
                 # Fallback to simple average if weights sum to zero
-                merged['rating'] = round(sum(ratings) / len(ratings), 2)
-                merged['rating_sources'] = len(ratings)
-                logger.warning(f"Rating weights summed to zero for {merged.get('name')}, using simple average")
+                merged["rating"] = round(sum(ratings) / len(ratings), 2)
+                merged["rating_sources"] = len(ratings)
+                logger.warning(
+                    f"Rating weights summed to zero for {merged.get('name')}, using simple average"
+                )
 
         # Merge descriptions - prefer longest/most detailed
-        descriptions = [e.get('description', '') for e in group if e.get('description')]
+        descriptions = [e.get("description", "") for e in group if e.get("description")]
         if descriptions:
-            merged['description'] = max(descriptions, key=len)
+            merged["description"] = max(descriptions, key=len)
 
         # Merge genres and tags - union of all
         all_genres = set()
         all_tags = set()
 
         for entry in group:
-            all_genres.update(entry.get('genres', []))
-            all_tags.update(entry.get('tags', []))
+            all_genres.update(entry.get("genres", []))
+            all_tags.update(entry.get("tags", []))
 
-        merged['genres'] = sorted(list(all_genres))
-        merged['tags'] = sorted(list(all_tags))
+        merged["genres"] = sorted(list(all_genres))
+        merged["tags"] = sorted(list(all_tags))
 
         # Merge popularity - use max
-        popularity_values = [e.get('popularity', 0) for e in group if e.get('popularity')]
+        popularity_values = [e.get("popularity", 0) for e in group if e.get("popularity")]
         if popularity_values:
-            merged['popularity'] = max(popularity_values)
+            merged["popularity"] = max(popularity_values)
 
         # Merge favourites - use max
-        fav_values = [e.get('favourites', 0) for e in group if e.get('favourites')]
+        fav_values = [e.get("favourites", 0) for e in group if e.get("favourites")]
         if fav_values:
-            merged['favourites'] = max(fav_values)
+            merged["favourites"] = max(fav_values)
 
         # Prefer non-Unknown values for chapters/volumes
         for entry in group:
-            if merged.get('chapters') in [None, 'Unknown'] and entry.get('chapters') not in [None, 'Unknown']:
-                merged['chapters'] = entry.get('chapters')
-            if merged.get('volumes') in [None, 'Unknown'] and entry.get('volumes') not in [None, 'Unknown']:
-                merged['volumes'] = entry.get('volumes')
+            if merged.get("chapters") in [None, "Unknown"] and entry.get("chapters") not in [
+                None,
+                "Unknown",
+            ]:
+                merged["chapters"] = entry.get("chapters")
+            if merged.get("volumes") in [None, "Unknown"] and entry.get("volumes") not in [
+                None,
+                "Unknown",
+            ]:
+                merged["volumes"] = entry.get("volumes")
 
         # Prefer better image URLs
         for entry in group:
-            img = entry.get('imageURL')
-            if img and ('original' in img or 'large' in img):
-                merged['imageURL'] = img
+            img = entry.get("imageURL")
+            if img and ("original" in img or "large" in img):
+                merged["imageURL"] = img
                 break
 
         # Use most recent status
-        status_priority = ['RELEASING', 'FINISHED', 'HIATUS', 'CANCELLED', 'NOT_YET_RELEASED']
+        status_priority = ["RELEASING", "FINISHED", "HIATUS", "CANCELLED", "NOT_YET_RELEASED"]
         for status in status_priority:
             for entry in group:
-                if entry.get('status') == status:
-                    merged['status'] = status
+                if entry.get("status") == status:
+                    merged["status"] = status
                     break
-            if merged.get('status') == status:
+            if merged.get("status") == status:
                 break
 
         return merged
@@ -577,7 +601,7 @@ class ManwhaDeduplicator:
         anilist_data: List[Dict],
         jikan_data: List[Dict],
         mangaupdates_data: List[Dict],
-        animeplanet_data: List[Dict]
+        animeplanet_data: List[Dict],
     ) -> List[Dict]:
         """
         Process and merge data from all sources.
@@ -596,18 +620,16 @@ class ManwhaDeduplicator:
         """
         # FIXED: Validate input data types
         sources = {
-            'anilist_data': anilist_data,
-            'jikan_data': jikan_data,
-            'mangaupdates_data': mangaupdates_data,
-            'animeplanet_data': animeplanet_data
+            "anilist_data": anilist_data,
+            "jikan_data": jikan_data,
+            "mangaupdates_data": mangaupdates_data,
+            "animeplanet_data": animeplanet_data,
         }
 
         for source_name, source_data in sources.items():
             # Check if input is a list
             if not isinstance(source_data, list):
-                raise TypeError(
-                    f"{source_name} must be a list, got {type(source_data).__name__}"
-                )
+                raise TypeError(f"{source_name} must be a list, got {type(source_data).__name__}")
 
             # Check if list is not empty and first element is a dict
             if source_data and not isinstance(source_data[0], dict):
@@ -652,33 +674,33 @@ def main():
     # Sample test data
     test_entries = [
         {
-            'id': 'anilist_1',
-            'name': 'Solo Leveling',
-            'altName': 'Na Honjaman Level-Up',
-            'rating': 4.7,
-            'source': 'AniList',
-            'description': 'Long description...',
-            'genres': ['Action', 'Fantasy'],
-            'tags': ['Dungeon', 'OP MC']
+            "id": "anilist_1",
+            "name": "Solo Leveling",
+            "altName": "Na Honjaman Level-Up",
+            "rating": 4.7,
+            "source": "AniList",
+            "description": "Long description...",
+            "genres": ["Action", "Fantasy"],
+            "tags": ["Dungeon", "OP MC"],
         },
         {
-            'id': 'mal_1',
-            'name': 'Solo Leveling',
-            'altName': 'Only I Level Up',
-            'rating': 4.8,
-            'source': 'MyAnimeList',
-            'description': 'Different description...',
-            'genres': ['Action', 'Adventure'],
-            'tags': ['Game']
+            "id": "mal_1",
+            "name": "Solo Leveling",
+            "altName": "Only I Level Up",
+            "rating": 4.8,
+            "source": "MyAnimeList",
+            "description": "Different description...",
+            "genres": ["Action", "Adventure"],
+            "tags": ["Game"],
         },
         {
-            'id': 'mu_1',
-            'name': 'Solo Leveling',
-            'rating': 4.9,
-            'source': 'MangaUpdates',
-            'description': 'Most detailed description...',
-            'genres': ['Action', 'Fantasy', 'Supernatural'],
-            'tags': []
+            "id": "mu_1",
+            "name": "Solo Leveling",
+            "rating": 4.9,
+            "source": "MangaUpdates",
+            "description": "Most detailed description...",
+            "genres": ["Action", "Fantasy", "Supernatural"],
+            "tags": [],
         },
     ]
 

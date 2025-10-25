@@ -29,29 +29,35 @@ logger = logging.getLogger(__name__)
 # Custom Exception Hierarchy
 # ===========================
 
+
 class APICollectorError(Exception):
     """Base exception for all API collector errors."""
+
     pass
 
 
 class RateLimitError(APICollectorError):
     """Raised when API rate limit is exceeded."""
+
     pass
 
 
 class TransformationError(APICollectorError):
     """Raised when data transformation fails."""
+
     pass
 
 
 class NetworkError(APICollectorError):
     """Raised when network request fails."""
+
     pass
 
 
 # ===========================
 # Base Collector Class
 # ===========================
+
 
 class BaseAPICollector(ABC):
     """
@@ -117,8 +123,8 @@ class BaseAPICollector(ABC):
                 timeout=self.TIMEOUT,
                 limits=httpx.Limits(
                     max_keepalive_connections=self.MAX_KEEPALIVE_CONNECTIONS,
-                    max_connections=self.MAX_CONNECTIONS
-                )
+                    max_connections=self.MAX_CONNECTIONS,
+                ),
             )
             logger.debug(f"Created new AsyncClient for {self.__class__.__name__}")
 
@@ -158,7 +164,7 @@ class BaseAPICollector(ABC):
             return True
         if isinstance(exception, NetworkError):
             # Check if it's a wrapped HTTPStatusError with 5xx or 429
-            if hasattr(exception, '__cause__') and isinstance(exception.__cause__, HTTPStatusError):
+            if hasattr(exception, "__cause__") and isinstance(exception.__cause__, HTTPStatusError):
                 status_code = exception.__cause__.response.status_code
                 # Retry 5xx (server errors) and 429 (rate limit)
                 return status_code >= 500 or status_code == 429
@@ -169,7 +175,7 @@ class BaseAPICollector(ABC):
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception(_is_retryable_error)
+        retry=retry_if_exception(_is_retryable_error),
     )
     async def _request(
         self,
@@ -177,7 +183,7 @@ class BaseAPICollector(ABC):
         endpoint: str,
         params: Optional[Dict] = None,
         json: Optional[Dict] = None,
-        **kwargs
+        **kwargs,
     ) -> Dict:
         """
         Execute an HTTP request with retry logic and rate limiting.
@@ -203,11 +209,7 @@ class BaseAPICollector(ABC):
 
         try:
             response = await self._client.request(
-                method=method,
-                url=url,
-                params=params,
-                json=json,
-                **kwargs
+                method=method, url=url, params=params, json=json, **kwargs
             )
 
             # Handle rate limiting
@@ -242,7 +244,9 @@ class BaseAPICollector(ABC):
         """
         return await self._request("GET", endpoint, params=params)
 
-    async def _post(self, endpoint: str, json: Optional[Dict] = None, params: Optional[Dict] = None) -> Dict:
+    async def _post(
+        self, endpoint: str, json: Optional[Dict] = None, params: Optional[Dict] = None
+    ) -> Dict:
         """
         Execute a POST request with retry logic.
 
@@ -379,6 +383,7 @@ class BaseAPICollector(ABC):
 # ===========================
 # Testing Helper
 # ===========================
+
 
 async def main():
     """Test the base collector (demonstrates usage pattern)."""

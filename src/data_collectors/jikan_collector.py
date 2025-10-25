@@ -7,11 +7,7 @@ Rate limit: 3 requests/second, 60 requests/minute
 import asyncio
 from typing import List, Dict, Optional
 import logging
-from src.data_collectors.base_collector import (
-    BaseAPICollector,
-    TransformationError,
-    logger
-)
+from src.data_collectors.base_collector import BaseAPICollector, TransformationError, logger
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +46,7 @@ class JikanCollector(BaseAPICollector):
             "limit": 25,  # Jikan default max
             "type": "manhwa",  # Filter for manhwa only
             "order_by": "members",  # Sort by popularity
-            "sort": "desc"
+            "sort": "desc",
         }
 
         if query:
@@ -150,7 +146,7 @@ class JikanCollector(BaseAPICollector):
                 "Finished": "FINISHED",
                 "On Hiatus": "HIATUS",
                 "Discontinued": "CANCELLED",
-                "Not yet published": "NOT_YET_RELEASED"
+                "Not yet published": "NOT_YET_RELEASED",
             }
             status = status_map.get(entry.get("status"), entry.get("status"))
 

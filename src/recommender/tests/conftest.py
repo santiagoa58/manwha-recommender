@@ -28,7 +28,7 @@ def sample_catalog_file(temp_data_dir):
             "genres": ["Action", "Fantasy", "Adventure"],
             "tags": ["Dungeon", "OP MC", "Leveling System"],
             "status": "FINISHED",
-            "source": "AniList"
+            "source": "AniList",
         },
         {
             "name": "Tower of God",
@@ -39,7 +39,7 @@ def sample_catalog_file(temp_data_dir):
             "genres": ["Action", "Adventure", "Fantasy"],
             "tags": ["Tower", "Game", "Mystery"],
             "status": "RELEASING",
-            "source": "MyAnimeList"
+            "source": "MyAnimeList",
         },
         {
             "name": "The Beginning After The End",
@@ -50,7 +50,7 @@ def sample_catalog_file(temp_data_dir):
             "genres": ["Action", "Fantasy", "Drama"],
             "tags": ["Reincarnation", "Magic", "OP MC"],
             "status": "RELEASING",
-            "source": "MangaUpdates"
+            "source": "MangaUpdates",
         },
         {
             "name": "Omniscient Reader",
@@ -61,7 +61,7 @@ def sample_catalog_file(temp_data_dir):
             "genres": ["Action", "Fantasy", "Drama"],
             "tags": ["Game", "Survival"],
             "status": "RELEASING",
-            "source": "AniList"
+            "source": "AniList",
         },
         {
             "name": "Return of the Mount Hua Sect",
@@ -72,7 +72,7 @@ def sample_catalog_file(temp_data_dir):
             "genres": ["Action", "Martial Arts", "Fantasy"],
             "tags": ["Reincarnation", "Murim", "OP MC"],
             "status": "RELEASING",
-            "source": "MangaUpdates"
+            "source": "MangaUpdates",
         },
         {
             "name": "Romance Novel",
@@ -83,12 +83,12 @@ def sample_catalog_file(temp_data_dir):
             "genres": ["Romance", "Drama"],
             "tags": ["School Life", "Love"],
             "status": "FINISHED",
-            "source": "AniList"
-        }
+            "source": "AniList",
+        },
     ]
 
     catalog_path = temp_data_dir / "test_catalog.json"
-    with open(catalog_path, 'w', encoding='utf-8') as f:
+    with open(catalog_path, "w", encoding="utf-8") as f:
         json.dump(catalog_data, f)
 
     return catalog_path

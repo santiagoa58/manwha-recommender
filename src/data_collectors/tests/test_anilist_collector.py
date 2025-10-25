@@ -19,7 +19,7 @@ def anilist_response():
                     "currentPage": 1,
                     "lastPage": 2,
                     "hasNextPage": True,
-                    "perPage": 50
+                    "perPage": 50,
                 },
                 "media": [
                     {
@@ -28,7 +28,7 @@ def anilist_response():
                         "title": {
                             "romaji": "Solo Leveling",
                             "english": "Solo Leveling",
-                            "native": "나 혼자만 레벨업"
+                            "native": "나 혼자만 레벨업",
                         },
                         "description": "E-class hunter story<br>Action packed",
                         "format": "MANGA",
@@ -39,14 +39,12 @@ def anilist_response():
                         "volumes": 45,
                         "countryOfOrigin": "KR",
                         "isLicensed": True,
-                        "coverImage": {
-                            "large": "https://example.com/image.jpg"
-                        },
+                        "coverImage": {"large": "https://example.com/image.jpg"},
                         "genres": ["Action", "Fantasy"],
                         "tags": [
                             {"name": "Dungeon", "rank": 80},
                             {"name": "OP MC", "rank": 75},
-                            {"name": "Weak Tag", "rank": 50}  # Should be filtered
+                            {"name": "Weak Tag", "rank": 50},  # Should be filtered
                         ],
                         "meanScore": 94,
                         "averageScore": 94,
@@ -54,14 +52,11 @@ def anilist_response():
                         "favourites": 50000,
                         "staff": {
                             "edges": [
-                                {
-                                    "node": {"name": {"full": "Chugong"}},
-                                    "role": "Story & Art"
-                                }
+                                {"node": {"name": {"full": "Chugong"}}, "role": "Story & Art"}
                             ]
-                        }
+                        },
                     }
-                ]
+                ],
             }
         }
     }
@@ -171,14 +166,16 @@ class TestAniListTransformation:
         """Test handling when only averageScore is available."""
         collector = AniListCollector()
 
-        media_list = [{
-            "id": 1,
-            "title": {"romaji": "Test"},
-            "averageScore": 80,  # Only average, no mean
-            "genres": [],
-            "tags": [],
-            "countryOfOrigin": "KR"
-        }]
+        media_list = [
+            {
+                "id": 1,
+                "title": {"romaji": "Test"},
+                "averageScore": 80,  # Only average, no mean
+                "genres": [],
+                "tags": [],
+                "countryOfOrigin": "KR",
+            }
+        ]
 
         transformed = collector._transform_entries(media_list)
         entry = transformed[0]
@@ -190,14 +187,16 @@ class TestAniListTransformation:
         """Test handling of missing dates."""
         collector = AniListCollector()
 
-        media_list = [{
-            "id": 1,
-            "title": {"romaji": "Test"},
-            "genres": [],
-            "tags": [],
-            "countryOfOrigin": "KR"
-            # No startDate or endDate
-        }]
+        media_list = [
+            {
+                "id": 1,
+                "title": {"romaji": "Test"},
+                "genres": [],
+                "tags": [],
+                "countryOfOrigin": "KR",
+                # No startDate or endDate
+            }
+        ]
 
         transformed = collector._transform_entries(media_list)
         entry = transformed[0]
@@ -210,13 +209,15 @@ class TestAniListTransformation:
         """Test that missing optional fields don't break transformation."""
         collector = AniListCollector()
 
-        minimal_media = [{
-            "id": 1,
-            "title": {"romaji": "Minimal Entry"},
-            "genres": [],
-            "tags": [],
-            "countryOfOrigin": "KR"
-        }]
+        minimal_media = [
+            {
+                "id": 1,
+                "title": {"romaji": "Minimal Entry"},
+                "genres": [],
+                "tags": [],
+                "countryOfOrigin": "KR",
+            }
+        ]
 
         transformed = collector._transform_entries(minimal_media)
 

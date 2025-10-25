@@ -55,20 +55,22 @@ class HybridManwhaRecommender:
     # - rating_penalty: Penalty for not meeting rating threshold
     # - status_boost: Boost for matching preferred status
     USER_PREF_WEIGHTS = {
-        'base_score': 0.5,
-        'genre_match': 0.3,
-        'genre_penalty': 0.3,
-        'rating_boost': 0.2,
-        'rating_penalty': 0.3,
-        'status_boost': 0.1
+        "base_score": 0.5,
+        "genre_match": 0.3,
+        "genre_penalty": 0.3,
+        "rating_boost": 0.2,
+        "rating_penalty": 0.3,
+        "status_boost": 0.1,
     }
 
-    def __init__(self,
-                 weights: Optional[Dict[str, float]] = None,
-                 tfidf_params: Optional[Dict] = None,
-                 svd_params: Optional[Dict] = None,
-                 knn_params: Optional[Dict] = None,
-                 user_pref_weights: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        weights: Optional[Dict[str, float]] = None,
+        tfidf_params: Optional[Dict] = None,
+        svd_params: Optional[Dict] = None,
+        knn_params: Optional[Dict] = None,
+        user_pref_weights: Optional[Dict[str, float]] = None,
+    ):
         """
         Initialize Hybrid Recommender with configurable hyperparameters.
 
@@ -89,11 +91,7 @@ class HybridManwhaRecommender:
         self.user_preferences = {}
 
         # Configurable weights
-        self.weights = weights or {
-            'content': 0.4,
-            'genre_similarity': 0.3,
-            'user_pref': 0.3
-        }
+        self.weights = weights or {"content": 0.4, "genre_similarity": 0.3, "user_pref": 0.3}
 
         # Validate weights sum to approximately 1.0
         weight_sum = sum(self.weights.values())
@@ -108,30 +106,27 @@ class HybridManwhaRecommender:
 
         # Configurable TF-IDF parameters
         self.tfidf_params = tfidf_params or {
-            'max_features': 5000,
-            'stop_words': None,  # Removed 'english' - wrong for Korean content
-            'ngram_range': (1, 2),
-            'min_df': 2,
-            'max_df': 0.8
+            "max_features": 5000,
+            "stop_words": None,  # Removed 'english' - wrong for Korean content
+            "ngram_range": (1, 2),
+            "min_df": 2,
+            "max_df": 0.8,
         }
 
         # Configurable SVD parameters
         self.svd_params = svd_params or {
-            'explained_variance_threshold': 0.90  # Auto-select components
+            "explained_variance_threshold": 0.90  # Auto-select components
         }
 
         # Configurable KNN parameters
-        self.knn_params = knn_params or {
-            'metric': 'cosine',
-            'algorithm': 'brute'
-        }
+        self.knn_params = knn_params or {"metric": "cosine", "algorithm": "brute"}
 
         # Store all hyperparameters
         self.hyperparameters = {
-            'weights': self.weights,
-            'tfidf': self.tfidf_params,
-            'svd': self.svd_params,
-            'knn': self.knn_params
+            "weights": self.weights,
+            "tfidf": self.tfidf_params,
+            "svd": self.svd_params,
+            "knn": self.knn_params,
         }
 
         # Model version
@@ -155,7 +150,7 @@ class HybridManwhaRecommender:
 
         # Load and validate JSON
         try:
-            with open(catalog_path, 'r', encoding='utf-8') as f:
+            with open(catalog_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in catalog file: {e}")
@@ -172,70 +167,84 @@ class HybridManwhaRecommender:
 
         # Warn if data is too small for meaningful recommendations
         if len(data) < 20:
-            logger.warning(f"Small dataset: {len(data)} entries. For meaningful recommendations, at least 20 entries recommended.")
+            logger.warning(
+                f"Small dataset: {len(data)} entries. For meaningful recommendations, at least 20 entries recommended."
+            )
 
         self.df = pd.DataFrame(data)
 
         # Validate required columns
-        required_columns = ['name']
+        required_columns = ["name"]
         missing_columns = [col for col in required_columns if col not in self.df.columns]
         if missing_columns:
             raise ValueError(f"Missing required columns: {missing_columns}")
 
         # Validate data types
         for idx, row in self.df.iterrows():
-            if not isinstance(row.get('name'), str) or not row.get('name').strip():
+            if not isinstance(row.get("name"), str) or not row.get("name").strip():
                 raise ValueError(f"Entry {idx}: 'name' must be non-empty string")
-            if 'description' in row and row['description'] is not None and not isinstance(row['description'], str):
+            if (
+                "description" in row
+                and row["description"] is not None
+                and not isinstance(row["description"], str)
+            ):
                 raise ValueError(f"Entry {idx}: 'description' must be string or null")
-            if 'genres' in row and row['genres'] is not None and not isinstance(row.get('genres'), list):
+            if (
+                "genres" in row
+                and row["genres"] is not None
+                and not isinstance(row.get("genres"), list)
+            ):
                 raise ValueError(f"Entry {idx}: 'genres' must be a list")
 
         # Check for duplicates
-        duplicates = self.df[self.df.duplicated(subset=['name'], keep=False)]
+        duplicates = self.df[self.df.duplicated(subset=["name"], keep=False)]
         if not duplicates.empty:
-            dup_names = duplicates['name'].tolist()
+            dup_names = duplicates["name"].tolist()
             logger.warning(f"Found {len(duplicates)} duplicate entries: {dup_names[:5]}...")
-            self.df = self.df.drop_duplicates(subset=['name'], keep='first')
+            self.df = self.df.drop_duplicates(subset=["name"], keep="first")
 
         # Handle missing values
-        if 'description' not in self.df.columns:
-            self.df['description'] = ''
+        if "description" not in self.df.columns:
+            self.df["description"] = ""
         else:
-            self.df['description'] = self.df['description'].fillna('')
+            self.df["description"] = self.df["description"].fillna("")
 
         # Add rating if it doesn't exist
-        if 'rating' not in self.df.columns:
-            self.df['rating'] = 3.5  # Default median rating
+        if "rating" not in self.df.columns:
+            self.df["rating"] = 3.5  # Default median rating
         else:
-            median_rating = self.df['rating'].median()
-            self.df['rating'] = self.df['rating'].fillna(median_rating if pd.notna(median_rating) else 3.5)
+            median_rating = self.df["rating"].median()
+            self.df["rating"] = self.df["rating"].fillna(
+                median_rating if pd.notna(median_rating) else 3.5
+            )
 
         # Add popularity if it doesn't exist
-        if 'popularity' not in self.df.columns:
-            self.df['popularity'] = 0
+        if "popularity" not in self.df.columns:
+            self.df["popularity"] = 0
         else:
-            self.df['popularity'] = self.df['popularity'].fillna(0)
+            self.df["popularity"] = self.df["popularity"].fillna(0)
 
         # Handle genres/tags - older data uses 'tags', newer uses both
-        if 'genres' not in self.df.columns and 'tags' in self.df.columns:
+        if "genres" not in self.df.columns and "tags" in self.df.columns:
             # Use tags as genres for older data
-            self.df['genres'] = self.df['tags']
-            self.df['tags'] = self.df['tags']
-        elif 'genres' not in self.df.columns:
-            self.df['genres'] = [[] for _ in range(len(self.df))]
+            self.df["genres"] = self.df["tags"]
+            self.df["tags"] = self.df["tags"]
+        elif "genres" not in self.df.columns:
+            self.df["genres"] = [[] for _ in range(len(self.df))]
 
-        if 'tags' not in self.df.columns:
-            self.df['tags'] = self.df['genres']
+        if "tags" not in self.df.columns:
+            self.df["tags"] = self.df["genres"]
 
-        self.df['genres'] = self.df['genres'].apply(lambda x: x if isinstance(x, list) else [])
-        self.df['tags'] = self.df['tags'].apply(lambda x: x if isinstance(x, list) else [])
+        self.df["genres"] = self.df["genres"].apply(lambda x: x if isinstance(x, list) else [])
+        self.df["tags"] = self.df["tags"].apply(lambda x: x if isinstance(x, list) else [])
 
         logger.info(f"Loaded {len(self.df)} manhwa entries")
 
         return self.df
 
-    def create_evaluation_split(self, test_ratio: float = 0.2, random_state: int = 42) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def create_evaluation_split(
+        self, test_ratio: float = 0.2, random_state: int = 42
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Split data into train and test sets for evaluation.
 
@@ -260,8 +269,9 @@ class HybridManwhaRecommender:
 
         return train_df, test_df
 
-    def evaluate_recommendations(self, test_df: pd.DataFrame, k: int = 10,
-                                 append_test_to_df: bool = True) -> Dict[str, float]:
+    def evaluate_recommendations(
+        self, test_df: pd.DataFrame, k: int = 10, append_test_to_df: bool = True
+    ) -> Dict[str, float]:
         """
         Evaluate recommendation quality using standard metrics plus coverage, novelty, diversity.
 
@@ -294,7 +304,7 @@ class HybridManwhaRecommender:
 
         # Store original training df to restore later
         original_df = self.df.copy()
-        test_item_names = set(test_df['name'].values)
+        test_item_names = set(test_df["name"].values)
 
         # Optionally append test items for lookup (but track for leakage detection)
         if append_test_to_df:
@@ -315,11 +325,11 @@ class HybridManwhaRecommender:
         logger.info(f"Evaluating on {len(test_df)} test items with K={k}...")
 
         for idx, row in test_df.iterrows():
-            test_title = row['name']
-            test_genres = set(row['genres']) if isinstance(row['genres'], list) else set()
+            test_title = row["name"]
+            test_genres = set(row["genres"]) if isinstance(row["genres"], list) else set()
 
             # Skip if test item not in training data or has no genres
-            if test_title not in self.df['name'].values or len(test_genres) == 0:
+            if test_title not in self.df["name"].values or len(test_genres) == 0:
                 continue
 
             try:
@@ -329,14 +339,13 @@ class HybridManwhaRecommender:
 
                 # Track all recommended items for coverage
                 for rec in recs:
-                    self._all_recommended_items.add(rec['name'])
+                    self._all_recommended_items.add(rec["name"])
 
                     # Check for data leakage: test items appearing in recommendations
-                    if rec['name'] in test_item_names and rec['name'] != test_title:
-                        data_leakage_detected.append({
-                            'test_item': test_title,
-                            'leaked_item': rec['name']
-                        })
+                    if rec["name"] in test_item_names and rec["name"] != test_title:
+                        data_leakage_detected.append(
+                            {"test_item": test_title, "leaked_item": rec["name"]}
+                        )
 
                 # Calculate relevance: items that share at least one genre
                 relevant_items = []
@@ -344,7 +353,7 @@ class HybridManwhaRecommender:
                 dcg = 0.0
 
                 for rank, rec in enumerate(recs, 1):
-                    rec_genres = set(rec['genres']) if isinstance(rec['genres'], list) else set()
+                    rec_genres = set(rec["genres"]) if isinstance(rec["genres"], list) else set()
                     is_relevant = len(test_genres & rec_genres) > 0
 
                     if is_relevant:
@@ -364,9 +373,13 @@ class HybridManwhaRecommender:
                 # Recall@K (of all items in training that share genres, how many in top K)
                 all_relevant = self.df[
                     self.df.apply(
-                        lambda x: len(test_genres & set(x['genres'] if isinstance(x['genres'], list) else [])) > 0,
-                        axis=1
-                    ) & (self.df['name'] != test_title)
+                        lambda x: len(
+                            test_genres & set(x["genres"] if isinstance(x["genres"], list) else [])
+                        )
+                        > 0,
+                        axis=1,
+                    )
+                    & (self.df["name"] != test_title)
                 ]
                 recall = len(relevant_items) / len(all_relevant) if len(all_relevant) > 0 else 0
                 recall_scores.append(recall)
@@ -375,7 +388,9 @@ class HybridManwhaRecommender:
                 # Calculate Jaccard similarity for all relevant items
                 all_relevant_scores = []
                 for _, rel_row in all_relevant.iterrows():
-                    rel_genres = set(rel_row['genres']) if isinstance(rel_row['genres'], list) else set()
+                    rel_genres = (
+                        set(rel_row["genres"]) if isinstance(rel_row["genres"], list) else set()
+                    )
                     if len(test_genres | rel_genres) > 0:
                         jaccard = len(test_genres & rel_genres) / len(test_genres | rel_genres)
                         all_relevant_scores.append(jaccard)
@@ -403,11 +418,11 @@ class HybridManwhaRecommender:
         # Add novelty metric (average popularity rank)
         novelty_scores = []
         if self._popularity_ranks is None:
-            self._popularity_ranks = self.df['popularity'].rank(ascending=False).to_dict()
+            self._popularity_ranks = self.df["popularity"].rank(ascending=False).to_dict()
 
         all_recommendations = [rec for recs in all_recommendation_lists for rec in recs]
         for rec in all_recommendations:
-            idx = self.df[self.df['name'] == rec['name']].index
+            idx = self.df[self.df["name"] == rec["name"]].index
             if len(idx) > 0:
                 rank = self._popularity_ranks.get(idx[0], len(self.df))
                 novelty_scores.append(rank / len(self.df))  # Normalize
@@ -429,7 +444,7 @@ class HybridManwhaRecommender:
         if data_leakage_detected:
             leakage_summary = {}
             for leak in data_leakage_detected:
-                key = leak['leaked_item']
+                key = leak["leaked_item"]
                 leakage_summary[key] = leakage_summary.get(key, 0) + 1
 
             logger.warning(
@@ -440,18 +455,18 @@ class HybridManwhaRecommender:
 
         # Calculate final metrics
         metrics = {
-            'precision@k': np.mean(precision_scores) if precision_scores else 0.0,
-            'recall@k': np.mean(recall_scores) if recall_scores else 0.0,
-            'ndcg@k': np.mean(ndcg_scores) if ndcg_scores else 0.0,
-            'mrr': np.mean(mrr_scores) if mrr_scores else 0.0,
-            'hit_rate@k': hits / len(test_df) if len(test_df) > 0 else 0.0,
-            'coverage': coverage,
-            'novelty': novelty,
-            'diversity': diversity,
-            'k': k,
-            'n_test_items': len(test_df),
-            'n_evaluated': len(precision_scores),
-            'data_leakage_count': len(data_leakage_detected)
+            "precision@k": np.mean(precision_scores) if precision_scores else 0.0,
+            "recall@k": np.mean(recall_scores) if recall_scores else 0.0,
+            "ndcg@k": np.mean(ndcg_scores) if ndcg_scores else 0.0,
+            "mrr": np.mean(mrr_scores) if mrr_scores else 0.0,
+            "hit_rate@k": hits / len(test_df) if len(test_df) > 0 else 0.0,
+            "coverage": coverage,
+            "novelty": novelty,
+            "diversity": diversity,
+            "k": k,
+            "n_test_items": len(test_df),
+            "n_evaluated": len(precision_scores),
+            "data_leakage_count": len(data_leakage_detected),
         }
 
         logger.info(f"Evaluation Results (K={k}):")
@@ -474,9 +489,11 @@ class HybridManwhaRecommender:
 
         # Combine text fields for TF-IDF using vectorized operations (much faster than iterrows)
         text_features = (
-            self.df['description'].fillna('') + ' ' +
-            self.df['genres'].apply(lambda x: ' '.join(x) if isinstance(x, list) else '') + ' ' +
-            self.df['tags'].apply(lambda x: ' '.join(x) if isinstance(x, list) else '')
+            self.df["description"].fillna("")
+            + " "
+            + self.df["genres"].apply(lambda x: " ".join(x) if isinstance(x, list) else "")
+            + " "
+            + self.df["tags"].apply(lambda x: " ".join(x) if isinstance(x, list) else "")
         ).tolist()
 
         # TF-IDF vectorization with configurable parameters
@@ -487,30 +504,24 @@ class HybridManwhaRecommender:
 
         # Normalize ratings
         self.rating_scaler = MinMaxScaler()
-        scaled_ratings = self.rating_scaler.fit_transform(
-            self.df[['rating']].values
-        )
+        scaled_ratings = self.rating_scaler.fit_transform(self.df[["rating"]].values)
 
         # Normalize popularity and save scaler
         self.popularity_scaler = MinMaxScaler()
-        scaled_popularity = self.popularity_scaler.fit_transform(
-            self.df[['popularity']].values
-        )
+        scaled_popularity = self.popularity_scaler.fit_transform(self.df[["popularity"]].values)
 
         # Combine features
-        self.feature_matrix = hstack([
-            tfidf_matrix,
-            csr_matrix(scaled_ratings),
-            csr_matrix(scaled_popularity)
-        ])
+        self.feature_matrix = hstack(
+            [tfidf_matrix, csr_matrix(scaled_ratings), csr_matrix(scaled_popularity)]
+        )
 
         logger.info(f"Combined feature matrix shape: {self.feature_matrix.shape}")
 
         # Train KNN model with configurable parameters
         self.content_model = NearestNeighbors(
             n_neighbors=min(21, len(self.df)),  # Top 20 + self
-            metric=self.knn_params['metric'],
-            algorithm=self.knn_params['algorithm']
+            metric=self.knn_params["metric"],
+            algorithm=self.knn_params["algorithm"],
         )
         self.content_model.fit(self.feature_matrix)
 
@@ -537,7 +548,7 @@ class HybridManwhaRecommender:
             temp_svd.fit(genre_profiles)
 
             explained_var = temp_svd.explained_variance_ratio_.cumsum()
-            threshold = self.svd_params.get('explained_variance_threshold', 0.90)
+            threshold = self.svd_params.get("explained_variance_threshold", 0.90)
             n_components = np.argmax(explained_var >= threshold) + 1
 
             logger.info(f"Using {n_components} components to explain {threshold*100}% variance")
@@ -558,19 +569,23 @@ class HybridManwhaRecommender:
         from sklearn.preprocessing import MultiLabelBinarizer
 
         mlb = MultiLabelBinarizer()
-        genre_matrix = mlb.fit_transform(self.df['genres'])
+        genre_matrix = mlb.fit_transform(self.df["genres"])
 
-        logger.info(f"Created genre matrix: {genre_matrix.shape} ({mlb.classes_.size} unique genres)")
+        logger.info(
+            f"Created genre matrix: {genre_matrix.shape} ({mlb.classes_.size} unique genres)"
+        )
 
         return genre_matrix
 
-    def tune_hyperparameters(self,
-                            train_df: pd.DataFrame,
-                            val_df: pd.DataFrame,
-                            param_grid: Optional[Dict] = None,
-                            metric: str = 'ndcg@k',
-                            k: int = 10,
-                            n_folds: int = 3) -> Dict:
+    def tune_hyperparameters(
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        param_grid: Optional[Dict] = None,
+        metric: str = "ndcg@k",
+        k: int = 10,
+        n_folds: int = 3,
+    ) -> Dict:
         """
         Tune hyperparameters using grid search with k-fold cross-validation.
 
@@ -588,18 +603,20 @@ class HybridManwhaRecommender:
         if param_grid is None:
             # Default search space
             param_grid = {
-                'weights': [
-                    {'content': 0.5, 'genre_similarity': 0.3, 'user_pref': 0.2},
-                    {'content': 0.4, 'genre_similarity': 0.3, 'user_pref': 0.3},
-                    {'content': 0.3, 'genre_similarity': 0.4, 'user_pref': 0.3},
-                    {'content': 0.4, 'genre_similarity': 0.4, 'user_pref': 0.2},
+                "weights": [
+                    {"content": 0.5, "genre_similarity": 0.3, "user_pref": 0.2},
+                    {"content": 0.4, "genre_similarity": 0.3, "user_pref": 0.3},
+                    {"content": 0.3, "genre_similarity": 0.4, "user_pref": 0.3},
+                    {"content": 0.4, "genre_similarity": 0.4, "user_pref": 0.2},
                 ],
-                'tfidf_max_features': [3000, 5000, 10000],
-                'tfidf_min_df': [1, 2, 3],
-                'tfidf_max_df': [0.7, 0.8, 0.9]
+                "tfidf_max_features": [3000, 5000, 10000],
+                "tfidf_min_df": [1, 2, 3],
+                "tfidf_max_df": [0.7, 0.8, 0.9],
             }
 
-        logger.info(f"Starting hyperparameter tuning with {n_folds}-fold CV, optimizing for {metric}@{k}")
+        logger.info(
+            f"Starting hyperparameter tuning with {n_folds}-fold CV, optimizing for {metric}@{k}"
+        )
 
         best_score = 0
         best_params = None
@@ -623,21 +640,18 @@ class HybridManwhaRecommender:
                 val_start = fold * fold_size
                 val_end = (fold + 1) * fold_size if fold < n_folds - 1 else len(train_df)
 
-                fold_train_df = pd.concat([
-                    train_df.iloc[:val_start],
-                    train_df.iloc[val_end:]
-                ])
+                fold_train_df = pd.concat([train_df.iloc[:val_start], train_df.iloc[val_end:]])
                 fold_val_df = train_df.iloc[val_start:val_end]
 
                 # Apply parameters
-                if 'weights' in params:
-                    self.weights = params['weights']
-                if 'tfidf_max_features' in params:
-                    self.tfidf_params['max_features'] = params['tfidf_max_features']
-                if 'tfidf_min_df' in params:
-                    self.tfidf_params['min_df'] = params['tfidf_min_df']
-                if 'tfidf_max_df' in params:
-                    self.tfidf_params['max_df'] = params['tfidf_max_df']
+                if "weights" in params:
+                    self.weights = params["weights"]
+                if "tfidf_max_features" in params:
+                    self.tfidf_params["max_features"] = params["tfidf_max_features"]
+                if "tfidf_min_df" in params:
+                    self.tfidf_params["min_df"] = params["tfidf_min_df"]
+                if "tfidf_max_df" in params:
+                    self.tfidf_params["max_df"] = params["tfidf_max_df"]
 
                 # Train on fold training set
                 self.df = fold_train_df
@@ -660,14 +674,16 @@ class HybridManwhaRecommender:
             if fold_scores:
                 avg_score = np.mean(fold_scores)
                 result = {
-                    'params': params.copy(),
-                    'score': avg_score,
-                    'fold_scores': fold_scores,
-                    'score_std': np.std(fold_scores)
+                    "params": params.copy(),
+                    "score": avg_score,
+                    "fold_scores": fold_scores,
+                    "score_std": np.std(fold_scores),
                 }
                 all_results.append(result)
 
-                logger.info(f"Params: {params} -> {metric}: {avg_score:.4f} ± {np.std(fold_scores):.4f}")
+                logger.info(
+                    f"Params: {params} -> {metric}: {avg_score:.4f} ± {np.std(fold_scores):.4f}"
+                )
 
                 if avg_score > best_score:
                     best_score = avg_score
@@ -678,25 +694,23 @@ class HybridManwhaRecommender:
 
         # Apply best parameters
         if best_params:
-            if 'weights' in best_params:
-                self.weights = best_params['weights']
-            if 'tfidf_max_features' in best_params:
-                self.tfidf_params['max_features'] = best_params['tfidf_max_features']
-            if 'tfidf_min_df' in best_params:
-                self.tfidf_params['min_df'] = best_params['tfidf_min_df']
-            if 'tfidf_max_df' in best_params:
-                self.tfidf_params['max_df'] = best_params['tfidf_max_df']
+            if "weights" in best_params:
+                self.weights = best_params["weights"]
+            if "tfidf_max_features" in best_params:
+                self.tfidf_params["max_features"] = best_params["tfidf_max_features"]
+            if "tfidf_min_df" in best_params:
+                self.tfidf_params["min_df"] = best_params["tfidf_min_df"]
+            if "tfidf_max_df" in best_params:
+                self.tfidf_params["max_df"] = best_params["tfidf_max_df"]
 
-        return {
-            'best_params': best_params,
-            'best_score': best_score,
-            'all_results': all_results
-        }
+        return {"best_params": best_params, "best_score": best_score, "all_results": all_results}
 
-    def handle_cold_start(self,
-                         user_profile: Optional[Dict] = None,
-                         n_recommendations: int = 10,
-                         popularity_bias: float = 0.5) -> List[Dict]:
+    def handle_cold_start(
+        self,
+        user_profile: Optional[Dict] = None,
+        n_recommendations: int = 10,
+        popularity_bias: float = 0.5,
+    ) -> List[Dict]:
         """
         Handle cold start scenarios for new users or when no history is available.
 
@@ -712,25 +726,24 @@ class HybridManwhaRecommender:
             return []
 
         # Get top rated items
-        top_rated = self.df.nlargest(n_recommendations * 3, 'rating')
+        top_rated = self.df.nlargest(n_recommendations * 3, "rating")
 
         # Add popularity boost
-        if 'popularity' in top_rated.columns:
+        if "popularity" in top_rated.columns:
             top_rated = top_rated.copy()
-            max_pop = top_rated['popularity'].max()
+            max_pop = top_rated["popularity"].max()
 
             # Check for division by zero
             if max_pop > 0:
-                top_rated['combined_score'] = (
-                    (1 - popularity_bias) * top_rated['rating'] +
-                    popularity_bias * (top_rated['popularity'] / max_pop)
-                )
-                top_rated = top_rated.nlargest(n_recommendations * 2, 'combined_score')
+                top_rated["combined_score"] = (1 - popularity_bias) * top_rated[
+                    "rating"
+                ] + popularity_bias * (top_rated["popularity"] / max_pop)
+                top_rated = top_rated.nlargest(n_recommendations * 2, "combined_score")
             else:
                 # Fallback to rating only if all popularity scores are 0
                 logger.warning("All popularity scores are 0, using rating only for cold start")
-                top_rated['combined_score'] = top_rated['rating']
-                top_rated = top_rated.nlargest(n_recommendations * 2, 'combined_score')
+                top_rated["combined_score"] = top_rated["rating"]
+                top_rated = top_rated.nlargest(n_recommendations * 2, "combined_score")
 
         # Ensure genre diversity
         diverse_recs = []
@@ -740,7 +753,7 @@ class HybridManwhaRecommender:
             if len(diverse_recs) >= n_recommendations:
                 break
 
-            row_genres = set(row.get('genres', []))
+            row_genres = set(row.get("genres", []))
             # Add if it introduces new genres or we have few recs
             if len(diverse_recs) < 3 or len(row_genres - seen_genres) > 0:
                 diverse_recs.append(row.to_dict())
@@ -767,7 +780,7 @@ class HybridManwhaRecommender:
         # Get feature vectors for each recommendation
         indices = []
         for rec in recommendations:
-            idx = self.df[self.df['name'] == rec['name']].index
+            idx = self.df[self.df["name"] == rec["name"]].index
             if len(idx) > 0:
                 indices.append(idx[0])
 
@@ -798,11 +811,13 @@ class HybridManwhaRecommender:
 
         return max(0, min(1, diversity))
 
-    def _mmr_rerank(self,
-                    candidate_scores: Dict[int, float],
-                    query_idx: int,
-                    n_recommendations: int,
-                    diversity_weight: float = 0.5) -> List[int]:
+    def _mmr_rerank(
+        self,
+        candidate_scores: Dict[int, float],
+        query_idx: int,
+        n_recommendations: int,
+        diversity_weight: float = 0.5,
+    ) -> List[int]:
         """
         Re-rank candidates using Maximal Marginal Relevance for diversity.
 
@@ -890,14 +905,10 @@ class HybridManwhaRecommender:
 
     def _build_title_cache(self):
         """Build cache for O(1) title lookups."""
-        self._title_cache = {
-            title.lower(): idx
-            for idx, title in enumerate(self.df['name'])
-        }
+        self._title_cache = {title.lower(): idx for idx, title in enumerate(self.df["name"])}
+
     def get_content_recommendations(
-        self,
-        manhwa_title: str,
-        n_recommendations: int = 20
+        self, manhwa_title: str, n_recommendations: int = 20
     ) -> List[Tuple[int, float]]:
         """Get content-based recommendations."""
         # Find manhwa index
@@ -907,25 +918,19 @@ class HybridManwhaRecommender:
 
         # Get neighbors
         distances, indices = self.content_model.kneighbors(
-            self.feature_matrix[idx],
-            n_neighbors=n_recommendations + 1
+            self.feature_matrix[idx], n_neighbors=n_recommendations + 1
         )
 
         # Convert distances to similarities (1 - cosine distance)
         similarities = 1 - distances[0]
 
         # Return (index, score) pairs, excluding self
-        results = [
-            (int(indices[0][i]), float(similarities[i]))
-            for i in range(1, len(indices[0]))
-        ]
+        results = [(int(indices[0][i]), float(similarities[i])) for i in range(1, len(indices[0]))]
 
         return results
 
     def get_genre_similarity_recommendations(
-        self,
-        manhwa_title: str,
-        n_recommendations: int = 20
+        self, manhwa_title: str, n_recommendations: int = 20
     ) -> List[Tuple[int, float]]:
         """Get genre-based similarity recommendations using latent genre features."""
         if self.genre_features is None:
@@ -940,20 +945,13 @@ class HybridManwhaRecommender:
         similarities = np.dot(self.genre_features, target_features)
 
         # Get top recommendations
-        top_indices = np.argsort(similarities)[::-1][1:n_recommendations+1]
+        top_indices = np.argsort(similarities)[::-1][1 : n_recommendations + 1]
 
-        results = [
-            (int(i), float(similarities[i]))
-            for i in top_indices
-        ]
+        results = [(int(i), float(similarities[i])) for i in top_indices]
 
         return results
 
-    def get_user_preference_score(
-        self,
-        manhwa_idx: int,
-        user_profile: Dict
-    ) -> float:
+    def get_user_preference_score(self, manhwa_idx: int, user_profile: Dict) -> float:
         """
         Calculate preference score based on user's taste profile.
 
@@ -979,37 +977,39 @@ class HybridManwhaRecommender:
         if manhwa_idx < 0:
             raise ValueError(f"manhwa_idx must be non-negative, got {manhwa_idx}")
         if manhwa_idx >= len(self.df):
-            raise ValueError(f"manhwa_idx {manhwa_idx} out of bounds for DataFrame with {len(self.df)} rows")
+            raise ValueError(
+                f"manhwa_idx {manhwa_idx} out of bounds for DataFrame with {len(self.df)} rows"
+            )
 
-        score = self.user_pref_weights['base_score']
+        score = self.user_pref_weights["base_score"]
 
         manhwa = self.df.iloc[manhwa_idx]
 
         # Genre preferences
-        liked_genres = set(user_profile.get('liked_genres', []))
-        disliked_genres = set(user_profile.get('disliked_genres', []))
-        manhwa_genres = set(manhwa['genres'])
+        liked_genres = set(user_profile.get("liked_genres", []))
+        disliked_genres = set(user_profile.get("disliked_genres", []))
+        manhwa_genres = set(manhwa["genres"])
 
         # Boost for liked genres
         overlap = len(manhwa_genres & liked_genres)
         if liked_genres:
-            score += self.user_pref_weights['genre_match'] * (overlap / len(liked_genres))
+            score += self.user_pref_weights["genre_match"] * (overlap / len(liked_genres))
 
         # Penalty for disliked genres
         if manhwa_genres & disliked_genres:
-            score -= self.user_pref_weights['genre_penalty']
+            score -= self.user_pref_weights["genre_penalty"]
 
         # Rating filter
-        min_rating = user_profile.get('min_rating', 0)
-        if manhwa['rating'] >= min_rating:
-            score += self.user_pref_weights['rating_boost']
+        min_rating = user_profile.get("min_rating", 0)
+        if manhwa["rating"] >= min_rating:
+            score += self.user_pref_weights["rating_boost"]
         else:
-            score -= self.user_pref_weights['rating_penalty']
+            score -= self.user_pref_weights["rating_penalty"]
 
         # Status preference
-        preferred_status = user_profile.get('preferred_status', [])
-        if preferred_status and manhwa.get('status') in preferred_status:
-            score += self.user_pref_weights['status_boost']
+        preferred_status = user_profile.get("preferred_status", [])
+        if preferred_status and manhwa.get("status") in preferred_status:
+            score += self.user_pref_weights["status_boost"]
 
         # Normalize to 0-1
         score = max(0, min(1, score))
@@ -1022,7 +1022,7 @@ class HybridManwhaRecommender:
         n_recommendations: int = 10,
         user_profile: Optional[Dict] = None,
         filters: Optional[Dict] = None,
-        diversity: float = 0.0
+        diversity: float = 0.0,
     ) -> List[Dict]:
         """
         Get hybrid recommendations with optional diversity re-ranking.
@@ -1049,25 +1049,31 @@ class HybridManwhaRecommender:
         max_candidates = min(50, len(self.df) - 1)
         n_candidates = min(n_recommendations * 5, max_candidates)
 
-        content_recs = self.get_content_recommendations(manhwa_title, n_recommendations=n_candidates)
-        genre_recs = self.get_genre_similarity_recommendations(manhwa_title, n_recommendations=n_candidates)
+        content_recs = self.get_content_recommendations(
+            manhwa_title, n_recommendations=n_candidates
+        )
+        genre_recs = self.get_genre_similarity_recommendations(
+            manhwa_title, n_recommendations=n_candidates
+        )
 
         # Combine scores
         combined_scores = {}
 
         # Content-based scores (TF-IDF similarity)
         for idx, score in content_recs:
-            combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['content'] * score
+            combined_scores[idx] = combined_scores.get(idx, 0) + self.weights["content"] * score
 
         # Genre-based similarity scores
         for idx, score in genre_recs:
-            combined_scores[idx] = combined_scores.get(idx, 0) + self.weights['genre_similarity'] * score
+            combined_scores[idx] = (
+                combined_scores.get(idx, 0) + self.weights["genre_similarity"] * score
+            )
 
         # User preference scores
         if user_profile:
             for idx in combined_scores.keys():
                 pref_score = self.get_user_preference_score(idx, user_profile)
-                combined_scores[idx] += self.weights['user_pref'] * pref_score
+                combined_scores[idx] += self.weights["user_pref"] * pref_score
 
         # Apply filters
         if filters:
@@ -1080,26 +1086,21 @@ class HybridManwhaRecommender:
         # Apply MMR re-ranking if diversity requested
         if diversity > 0 and len(combined_scores) > n_recommendations:
             reranked_indices = self._mmr_rerank(
-                combined_scores,
-                input_idx,
-                n_recommendations,
-                diversity_weight=diversity
+                combined_scores, input_idx, n_recommendations, diversity_weight=diversity
             )
             # Use reranked order
             sorted_recs = [(idx, combined_scores[idx]) for idx in reranked_indices]
         else:
             # Sort by combined score
-            sorted_recs = sorted(
-                combined_scores.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:n_recommendations]
+            sorted_recs = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[
+                :n_recommendations
+            ]
 
         # Build result list
         recommendations = []
         for idx, score in sorted_recs:
             manhwa = self.df.iloc[idx].to_dict()
-            manhwa['recommendation_score'] = float(score)
+            manhwa["recommendation_score"] = float(score)
             recommendations.append(manhwa)
 
         return recommendations
@@ -1112,37 +1113,38 @@ class HybridManwhaRecommender:
             manhwa = self.df.iloc[idx]
 
             # Genre filter
-            if 'genres' in filters:
-                required_genres = set(filters['genres'])
-                if not (set(manhwa['genres']) & required_genres):
+            if "genres" in filters:
+                required_genres = set(filters["genres"])
+                if not (set(manhwa["genres"]) & required_genres):
                     continue
 
             # Rating filter
-            if 'min_rating' in filters:
-                if manhwa['rating'] < filters['min_rating']:
+            if "min_rating" in filters:
+                if manhwa["rating"] < filters["min_rating"]:
                     continue
 
-            if 'max_rating' in filters:
-                if manhwa['rating'] > filters['max_rating']:
+            if "max_rating" in filters:
+                if manhwa["rating"] > filters["max_rating"]:
                     continue
 
             # Status filter
-            if 'status' in filters:
-                if manhwa.get('status') not in filters['status']:
+            if "status" in filters:
+                if manhwa.get("status") not in filters["status"]:
                     continue
 
             # Year filter - basic implementation
             # Note: Assumes 'year' field exists or can be extracted from 'years' field
-            if 'min_year' in filters:
-                min_year = filters['min_year']
-                manhwa_year = manhwa.get('year')
+            if "min_year" in filters:
+                min_year = filters["min_year"]
+                manhwa_year = manhwa.get("year")
 
                 # Try to extract year from 'years' field if 'year' not present
-                if manhwa_year is None and 'years' in manhwa and manhwa['years']:
-                    years_str = str(manhwa['years'])
+                if manhwa_year is None and "years" in manhwa and manhwa["years"]:
+                    years_str = str(manhwa["years"])
                     # Extract first 4-digit year from string
                     import re
-                    year_match = re.search(r'\b(19|20)\d{2}\b', years_str)
+
+                    year_match = re.search(r"\b(19|20)\d{2}\b", years_str)
                     if year_match:
                         manhwa_year = int(year_match.group())
 
@@ -1168,12 +1170,9 @@ class HybridManwhaRecommender:
             return idx
 
         # Fall back to fuzzy matching
-        titles = self.df['name'].tolist()
+        titles = self.df["name"].tolist()
         best_match = process.extractOne(
-            title,
-            titles,
-            scorer=fuzz.token_sort_ratio,
-            score_cutoff=70
+            title, titles, scorer=fuzz.token_sort_ratio, score_cutoff=70
         )
 
         if best_match:
@@ -1188,7 +1187,9 @@ class HybridManwhaRecommender:
         """Save trained models with atomic writes and error handling."""
         # Validate model is trained
         if self.content_model is None:
-            raise ValueError("Cannot save: content model not trained. Call build_content_features() first.")
+            raise ValueError(
+                "Cannot save: content model not trained. Call build_content_features() first."
+            )
         if self.df is None or len(self.df) == 0:
             raise ValueError("Cannot save: no data loaded. Call prepare_data() first.")
 
@@ -1254,17 +1255,17 @@ class HybridManwhaRecommender:
 
             # Save config
             config = {
-                'version': self.model_version,
-                'weights': self.weights,
-                'hyperparameters': self.hyperparameters,
-                'n_entries': len(self.df),
-                'feature_matrix_shape': self.feature_matrix.shape,
-                'has_genre_model': self.genre_model is not None,
-                'timestamp': time.time()
+                "version": self.model_version,
+                "weights": self.weights,
+                "hyperparameters": self.hyperparameters,
+                "n_entries": len(self.df),
+                "feature_matrix_shape": self.feature_matrix.shape,
+                "has_genre_model": self.genre_model is not None,
+                "timestamp": time.time(),
             }
 
             try:
-                with open(temp_dir / "recommender_config.json", 'w') as f:
+                with open(temp_dir / "recommender_config.json", "w") as f:
                     json.dump(config, f, indent=2)
             except Exception as e:
                 raise IOError(f"Failed to save config: {e}")
@@ -1303,7 +1304,7 @@ class HybridManwhaRecommender:
             "rating_scaler.pkl",
             "feature_matrix.pkl",
             "manhwa_catalog.pkl",
-            "recommender_config.json"
+            "recommender_config.json",
         ]
 
         missing_files = [f for f in required_files if not (model_path / f).exists()]
@@ -1312,15 +1313,15 @@ class HybridManwhaRecommender:
 
         # Load and validate config first
         try:
-            with open(model_path / "recommender_config.json", 'r') as f:
+            with open(model_path / "recommender_config.json", "r") as f:
                 config = json.load(f)
         except Exception as e:
             raise ValueError(f"Failed to load config: {e}")
 
         # Validate version compatibility
-        model_version = config.get('version', '1.0.0')
-        major_version = model_version.split('.')[0]
-        current_major = MODEL_VERSION.split('.')[0]
+        model_version = config.get("version", "1.0.0")
+        major_version = model_version.split(".")[0]
+        current_major = MODEL_VERSION.split(".")[0]
         if major_version != current_major:
             raise ValueError(f"Incompatible model version: {model_version} vs {MODEL_VERSION}")
         if model_version != MODEL_VERSION:
@@ -1376,19 +1377,19 @@ class HybridManwhaRecommender:
             raise IOError(f"Failed to load manhwa_catalog: {e}")
 
         # Load hyperparameters if available
-        if 'hyperparameters' in config:
-            self.hyperparameters = config['hyperparameters']
-            self.weights = self.hyperparameters.get('weights', self.weights)
-            self.tfidf_params = self.hyperparameters.get('tfidf', self.tfidf_params)
-            self.svd_params = self.hyperparameters.get('svd', self.svd_params)
-            self.knn_params = self.hyperparameters.get('knn', self.knn_params)
+        if "hyperparameters" in config:
+            self.hyperparameters = config["hyperparameters"]
+            self.weights = self.hyperparameters.get("weights", self.weights)
+            self.tfidf_params = self.hyperparameters.get("tfidf", self.tfidf_params)
+            self.svd_params = self.hyperparameters.get("svd", self.svd_params)
+            self.knn_params = self.hyperparameters.get("knn", self.knn_params)
         else:
             # Load weights from config (legacy models)
-            loaded_weights = config['weights']
+            loaded_weights = config["weights"]
 
             # Backward compatibility: convert old 'collaborative' key to 'genre_similarity'
-            if 'collaborative' in loaded_weights and 'genre_similarity' not in loaded_weights:
-                loaded_weights['genre_similarity'] = loaded_weights.pop('collaborative')
+            if "collaborative" in loaded_weights and "genre_similarity" not in loaded_weights:
+                loaded_weights["genre_similarity"] = loaded_weights.pop("collaborative")
                 logger.info("Converted legacy 'collaborative' weight to 'genre_similarity'")
 
             self.weights = loaded_weights
@@ -1396,7 +1397,9 @@ class HybridManwhaRecommender:
         logger.info(f"Models loaded from {model_path}")
 
 
-def train_and_save_model(catalog_path: str, output_dir: str = "models", evaluate: bool = True, test_ratio: float = 0.2):
+def train_and_save_model(
+    catalog_path: str, output_dir: str = "models", evaluate: bool = True, test_ratio: float = 0.2
+):
     """
     Train and save recommendation models with optional evaluation.
 
@@ -1446,8 +1449,9 @@ def train_and_save_model(catalog_path: str, output_dir: str = "models", evaluate
     # Save evaluation metrics if available
     if metrics:
         import json
+
         metrics_path = Path(output_dir) / "evaluation_metrics.json"
-        with open(metrics_path, 'w') as f:
+        with open(metrics_path, "w") as f:
             json.dump(metrics, f, indent=2)
         logger.info(f"Evaluation metrics saved to {metrics_path}")
 
@@ -1458,29 +1462,29 @@ def train_and_save_model(catalog_path: str, output_dir: str = "models", evaluate
 
 def main():
     """Test the hybrid recommender."""
+    from src.utils.constants import CLEANED_MANWHAS_PATH, MODELS_DIR
+
     # Train on test data (use existing cleaned manwhas for now)
     recommender, metrics = train_and_save_model(
-        catalog_path="data/cleanedManwhas.json",
-        output_dir="models",
-        evaluate=True
+        catalog_path=str(CLEANED_MANWHAS_PATH), output_dir=str(MODELS_DIR), evaluate=True
     )
 
     if metrics:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("EVALUATION METRICS")
-        print("="*60)
+        print("=" * 60)
         print(f"Precision@10: {metrics['precision@k']:.4f}")
         print(f"Recall@10: {metrics['recall@k']:.4f}")
         print(f"NDCG@10: {metrics['ndcg@k']:.4f}")
         print(f"MRR: {metrics['mrr']:.4f}")
         print(f"Hit Rate@10: {metrics['hit_rate@k']:.4f}")
         print(f"Test items evaluated: {metrics['n_evaluated']}/{metrics['n_test_items']}")
-        print("="*60 + "\n")
+        print("=" * 60 + "\n")
 
     # Test recommendations
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TESTING HYBRID RECOMMENDER")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     test_title = "Solo Leveling"
     print(f"Getting recommendations for: {test_title}\n")
@@ -1496,20 +1500,18 @@ def main():
         print(f"   Genres: {', '.join(rec['genres'][:3])}")
 
     # With user profile
-    print("\n" + "-"*60 + "\n")
+    print("\n" + "-" * 60 + "\n")
     user_profile = {
-        'liked_genres': ['Action', 'Fantasy'],
-        'disliked_genres': ['Romance'],
-        'min_rating': 4.0,
-        'preferred_status': ['RELEASING', 'FINISHED']
+        "liked_genres": ["Action", "Fantasy"],
+        "disliked_genres": ["Romance"],
+        "min_rating": 4.0,
+        "preferred_status": ["RELEASING", "FINISHED"],
     }
 
     print("User Profile:", json.dumps(user_profile, indent=2))
 
     recs_filtered = recommender.recommend(
-        test_title,
-        n_recommendations=5,
-        user_profile=user_profile
+        test_title, n_recommendations=5, user_profile=user_profile
     )
 
     print("\nTop 5 Recommendations (With user profile):")

@@ -19,7 +19,7 @@ def jikan_response():
                     {"type": "Default", "title": "Solo Leveling"},
                     {"type": "English", "title": "Solo Leveling"},
                     {"type": "Japanese", "title": "俺だけレベルアップな件"},
-                    {"type": "Synonym", "title": "Only I Level Up"}
+                    {"type": "Synonym", "title": "Only I Level Up"},
                 ],
                 "type": "Manhwa",
                 "score": 9.4,
@@ -32,37 +32,19 @@ def jikan_response():
                 "volumes": 45,
                 "published": {
                     "from": "2018-03-04T00:00:00+00:00",
-                    "to": "2023-01-01T00:00:00+00:00"
+                    "to": "2023-01-01T00:00:00+00:00",
                 },
-                "genres": [
-                    {"mal_id": 1, "name": "Action"},
-                    {"mal_id": 10, "name": "Fantasy"}
-                ],
-                "themes": [
-                    {"mal_id": 31, "name": "Super Power"}
-                ],
-                "demographics": [
-                    {"mal_id": 27, "name": "Shounen"}
-                ],
-                "authors": [
-                    {"mal_id": 1, "name": "Chugong"}
-                ],
-                "serializations": [
-                    {"mal_id": 1, "name": "Kakao Page"}
-                ],
-                "images": {
-                    "jpg": {
-                        "large_image_url": "https://example.com/image.jpg"
-                    }
-                },
+                "genres": [{"mal_id": 1, "name": "Action"}, {"mal_id": 10, "name": "Fantasy"}],
+                "themes": [{"mal_id": 31, "name": "Super Power"}],
+                "demographics": [{"mal_id": 27, "name": "Shounen"}],
+                "authors": [{"mal_id": 1, "name": "Chugong"}],
+                "serializations": [{"mal_id": 1, "name": "Kakao Page"}],
+                "images": {"jpg": {"large_image_url": "https://example.com/image.jpg"}},
                 "rank": 42,
-                "url": "https://myanimelist.net/manga/123"
+                "url": "https://myanimelist.net/manga/123",
             }
         ],
-        "pagination": {
-            "has_next_page": False,
-            "last_visible_page": 1
-        }
+        "pagination": {"has_next_page": False, "last_visible_page": 1},
     }
 
 
@@ -115,9 +97,9 @@ class TestJikanTransformation:
         collector = JikanCollector()
 
         # Add many titles
-        jikan_response["data"][0]["titles"].extend([
-            {"type": "Synonym", "title": f"Title {i}"} for i in range(10)
-        ])
+        jikan_response["data"][0]["titles"].extend(
+            [{"type": "Synonym", "title": f"Title {i}"} for i in range(10)]
+        )
 
         entries = jikan_response["data"]
         transformed = collector._transform_entries(entries)
@@ -164,16 +146,18 @@ class TestJikanTransformation:
         """Test status mapping for ongoing series."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "Test",
-            "titles": [],
-            "type": "Manhwa",
-            "status": "Publishing",
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "Test",
+                "titles": [],
+                "type": "Manhwa",
+                "status": "Publishing",
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -184,16 +168,18 @@ class TestJikanTransformation:
         """Test status mapping for hiatus."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "Test",
-            "titles": [],
-            "type": "Manhwa",
-            "status": "On Hiatus",
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "Test",
+                "titles": [],
+                "type": "Manhwa",
+                "status": "On Hiatus",
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -217,19 +203,18 @@ class TestJikanTransformation:
         """Test date formatting for ongoing series."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "Ongoing Series",
-            "titles": [],
-            "type": "Manhwa",
-            "published": {
-                "from": "2020-01-01T00:00:00+00:00",
-                "to": None
-            },
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "Ongoing Series",
+                "titles": [],
+                "type": "Manhwa",
+                "published": {"from": "2020-01-01T00:00:00+00:00", "to": None},
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -279,16 +264,18 @@ class TestJikanTransformation:
         """Test handling when score is missing."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "No Score",
-            "titles": [],
-            "type": "Manhwa",
-            "score": None,
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "No Score",
+                "titles": [],
+                "type": "Manhwa",
+                "score": None,
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -299,16 +286,18 @@ class TestJikanTransformation:
         """Test handling of missing dates."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "No Dates",
-            "titles": [],
-            "type": "Manhwa",
-            "published": {},
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "No Dates",
+                "titles": [],
+                "type": "Manhwa",
+                "published": {},
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -321,15 +310,17 @@ class TestJikanTransformation:
         """Test that missing optional fields don't break transformation."""
         collector = JikanCollector()
 
-        minimal_entry = [{
-            "mal_id": 1,
-            "title": "Minimal Entry",
-            "titles": [],
-            "type": "Manhwa",
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        minimal_entry = [
+            {
+                "mal_id": 1,
+                "title": "Minimal Entry",
+                "titles": [],
+                "type": "Manhwa",
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(minimal_entry)
 
@@ -357,16 +348,18 @@ class TestJikanTransformation:
         """Test handling of missing chapters/volumes."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "No Chapters",
-            "titles": [],
-            "type": "Manhwa",
-            # chapters and volumes not present (missing key)
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "No Chapters",
+                "titles": [],
+                "type": "Manhwa",
+                # chapters and volumes not present (missing key)
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -390,16 +383,18 @@ class TestJikanTransformation:
         """Test handling of missing image."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "No Image",
-            "titles": [],
-            "type": "Manhwa",
-            "images": {},
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "No Image",
+                "titles": [],
+                "type": "Manhwa",
+                "images": {},
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -422,15 +417,17 @@ class TestJikanTransformation:
         """Test country for non-manhwa entries."""
         collector = JikanCollector()
 
-        entries = [{
-            "mal_id": 1,
-            "title": "Manga",
-            "titles": [],
-            "type": "Manga",  # Not Manhwa
-            "genres": [],
-            "themes": [],
-            "demographics": []
-        }]
+        entries = [
+            {
+                "mal_id": 1,
+                "title": "Manga",
+                "titles": [],
+                "type": "Manga",  # Not Manhwa
+                "genres": [],
+                "themes": [],
+                "demographics": [],
+            }
+        ]
 
         transformed = collector._transform_entries(entries)
         entry = transformed[0]
@@ -450,14 +447,14 @@ class TestJikanTransformation:
                 "type": "Manhwa",
                 "genres": [],
                 "themes": [],
-                "demographics": []
+                "demographics": [],
             },
             {
                 # Malformed entry without mal_id
                 "title": "Broken Entry",
                 "titles": [],
-                "type": "Manhwa"
-            }
+                "type": "Manhwa",
+            },
         ]
 
         # Should handle error and continue

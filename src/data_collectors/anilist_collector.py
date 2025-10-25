@@ -13,7 +13,7 @@ from src.data_collectors.base_collector import (
     BaseAPICollector,
     APICollectorError,
     TransformationError,
-    logger
+    logger,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ class AniListCollector(BaseAPICollector):
             "page": page,
             "perPage": per_page,
             "type": "MANGA",
-            "countryOfOrigin": "KR"  # Korea for manhwa
+            "countryOfOrigin": "KR",  # Korea for manhwa
         }
 
         try:
@@ -170,8 +170,10 @@ class AniListCollector(BaseAPICollector):
             page_info = data.get("Page", {}).get("pageInfo", {})
             media_list = data.get("Page", {}).get("media", [])
 
-            logger.info(f"Retrieved page {page}/{page_info.get('lastPage', '?')} "
-                       f"with {len(media_list)} entries")
+            logger.info(
+                f"Retrieved page {page}/{page_info.get('lastPage', '?')} "
+                f"with {len(media_list)} entries"
+            )
 
             return self._transform_entries(media_list), page_info
 
@@ -198,7 +200,9 @@ class AniListCollector(BaseAPICollector):
                 if 0 <= mean_score <= 100:
                     rating = round(mean_score / 20, 2)  # 100 -> 5.0
                 else:
-                    logger.warning(f"Rating out of range for {media.get('id')}: {mean_score} (expected 0-100)")
+                    logger.warning(
+                        f"Rating out of range for {media.get('id')}: {mean_score} (expected 0-100)"
+                    )
                     # Clamp to valid range
                     rating = round(max(0, min(100, mean_score)) / 20, 2)
 
@@ -210,8 +214,11 @@ class AniListCollector(BaseAPICollector):
             # Extract genres and tags
             genres = media.get("genres", [])
             # Only include high-confidence tags (MIN_TAG_RANK threshold filters spoilers/low-confidence)
-            tags = [tag["name"] for tag in media.get("tags", [])
-                   if tag.get("rank", 0) >= self.MIN_TAG_RANK]
+            tags = [
+                tag["name"]
+                for tag in media.get("tags", [])
+                if tag.get("rank", 0) >= self.MIN_TAG_RANK
+            ]
             all_tags = list(set(genres + tags))
 
             # Get alternative titles
@@ -322,16 +329,16 @@ class AniListCollector(BaseAPICollector):
             return ""
 
         # Convert <br> tags to newlines first (preserve line breaks)
-        text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
 
         # Remove all other HTML tags and replace with space
-        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r"<[^>]+>", " ", text)
 
         # Convert HTML entities to plain text
         text = html.unescape(text)
 
         # Clean up multiple spaces (but preserve newlines)
-        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r"[ \t]+", " ", text)
 
         return text.strip()
 

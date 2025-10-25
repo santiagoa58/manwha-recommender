@@ -7,11 +7,7 @@ Most comprehensive manga/manhwa database with detailed metadata.
 import asyncio
 from typing import List, Dict, Optional
 import logging
-from src.data_collectors.base_collector import (
-    BaseAPICollector,
-    TransformationError,
-    logger
-)
+from src.data_collectors.base_collector import BaseAPICollector, TransformationError, logger
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +32,7 @@ class MangaUpdatesCollector(BaseAPICollector):
     RATE_LIMIT_DELAY = 0.5  # Conservative rate limiting
 
     async def search_manhwa(
-        self,
-        page: int = 1,
-        per_page: int = 50,
-        query: str = "",
-        type_filter: str = "Manhwa"
+        self, page: int = 1, per_page: int = 50, query: str = "", type_filter: str = "Manhwa"
     ) -> tuple[List[Dict], int]:
         """
         Search for manhwa entries.
@@ -100,7 +92,8 @@ class MangaUpdatesCollector(BaseAPICollector):
 
             # Filter out None results and exceptions
             detailed_entries = [
-                entry for entry in detailed_results
+                entry
+                for entry in detailed_results
                 if entry is not None and not isinstance(entry, Exception)
             ]
 
@@ -200,7 +193,7 @@ class MangaUpdatesCollector(BaseAPICollector):
                 "Complete": "FINISHED",
                 "Ongoing": "RELEASING",
                 "Hiatus": "HIATUS",
-                "Cancelled": "CANCELLED"
+                "Cancelled": "CANCELLED",
             }
             mapped_status = status_map.get(status, status)
 
@@ -270,9 +263,7 @@ class MangaUpdatesCollector(BaseAPICollector):
                 break
 
             entries, total_hits = await self.search_manhwa(
-                page=page,
-                per_page=per_page,
-                type_filter="Manhwa"
+                page=page, per_page=per_page, type_filter="Manhwa"
             )
 
             if not entries:
@@ -328,7 +319,9 @@ async def main():
         for i, manhwa in enumerate(manhwa_list[:5], 1):
             print(f"{i}. {manhwa['name']}")
             print(f"   MU ID: {manhwa['mangaupdates_id']}")
-            print(f"   Rating: {manhwa['rating']}/5.0 (Bayesian: {manhwa.get('bayesian_rating', 'N/A')}/10)")
+            print(
+                f"   Rating: {manhwa['rating']}/5.0 (Bayesian: {manhwa.get('bayesian_rating', 'N/A')}/10)"
+            )
             print(f"   Genres: {', '.join(manhwa['genres'][:3])}")
             print(f"   Status: {manhwa['status']}")
             print(f"   Year: {manhwa['year']}")

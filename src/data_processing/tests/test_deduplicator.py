@@ -94,7 +94,11 @@ class TestDuplicateDetection:
         entries = [
             {"id": "1", "name": "Solo Leveling", "source": "A"},
             {"id": "2", "name": "Solo  Leveling", "source": "B"},  # Extra spaces
-            {"id": "3", "name": "Solo Leveling Part 1", "source": "C"},  # With suffix that gets removed
+            {
+                "id": "3",
+                "name": "Solo Leveling Part 1",
+                "source": "C",
+            },  # With suffix that gets removed
         ]
 
         duplicate_groups = dedup.find_duplicates(entries)
@@ -346,7 +350,7 @@ class TestProcessAllSources:
             anilist_data=anilist_data,
             jikan_data=jikan_data,
             mangaupdates_data=mu_data,
-            animeplanet_data=ap_data
+            animeplanet_data=ap_data,
         )
 
         # Should return combined and deduplicated list
@@ -358,29 +362,33 @@ class TestProcessAllSources:
         dedup = ManwhaDeduplicator()
 
         # Same manhwa from different sources
-        anilist_data = [{
-            "id": "anilist_1",
-            "name": "Solo Leveling",
-            "rating": 4.7,
-            "genres": ["Action"],
-            "tags": [],
-            "source": "AniList"
-        }]
+        anilist_data = [
+            {
+                "id": "anilist_1",
+                "name": "Solo Leveling",
+                "rating": 4.7,
+                "genres": ["Action"],
+                "tags": [],
+                "source": "AniList",
+            }
+        ]
 
-        jikan_data = [{
-            "id": "mal_1",
-            "name": "Solo Leveling",
-            "rating": 4.8,
-            "genres": ["Fantasy"],
-            "tags": [],
-            "source": "MyAnimeList"
-        }]
+        jikan_data = [
+            {
+                "id": "mal_1",
+                "name": "Solo Leveling",
+                "rating": 4.8,
+                "genres": ["Fantasy"],
+                "tags": [],
+                "source": "MyAnimeList",
+            }
+        ]
 
         result = dedup.process_all_sources(
             anilist_data=anilist_data,
             jikan_data=jikan_data,
             mangaupdates_data=[],
-            animeplanet_data=[]
+            animeplanet_data=[],
         )
 
         # Should merge into 1 entry

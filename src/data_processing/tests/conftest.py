@@ -16,7 +16,7 @@ def duplicate_manhwa_entries():
             "genres": ["Action", "Fantasy"],
             "tags": ["Dungeon"],
             "source": "AniList",
-            "description": "Short description"
+            "description": "Short description",
         },
         {
             "id": "mal_1",
@@ -27,7 +27,7 @@ def duplicate_manhwa_entries():
             "genres": ["Action", "Adventure"],
             "tags": ["Game"],
             "source": "MyAnimeList",
-            "description": "Different description"
+            "description": "Different description",
         },
         {
             "id": "mu_1",
@@ -37,7 +37,7 @@ def duplicate_manhwa_entries():
             "genres": ["Action", "Fantasy", "Supernatural"],
             "tags": [],
             "source": "MangaUpdates",
-            "description": "Most detailed description here"
+            "description": "Most detailed description here",
         },
         {
             "id": "test_4",
@@ -46,8 +46,8 @@ def duplicate_manhwa_entries():
             "genres": ["Action"],
             "tags": [],
             "source": "AniList",
-            "description": "Tower story"
-        }
+            "description": "Tower story",
+        },
     ]
 
 
@@ -65,7 +65,7 @@ def sample_manhwa_list():
             "genres": ["Action", "Fantasy"],
             "tags": ["Dungeon", "OP MC"],
             "status": "FINISHED",
-            "source": "AniList"
+            "source": "AniList",
         },
         {
             "id": "test_2",
@@ -77,7 +77,7 @@ def sample_manhwa_list():
             "genres": ["Action", "Adventure", "Fantasy"],
             "tags": ["Tower", "Game"],
             "status": "RELEASING",
-            "source": "MyAnimeList"
+            "source": "MyAnimeList",
         },
         {
             "id": "test_3",
@@ -89,6 +89,6 @@ def sample_manhwa_list():
             "genres": ["Action", "Fantasy", "Drama"],
             "tags": ["Reincarnation", "Magic"],
             "status": "RELEASING",
-            "source": "MangaUpdates"
-        }
+            "source": "MangaUpdates",
+        },
     ]

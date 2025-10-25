@@ -49,24 +49,24 @@ class TestDataPreparation:
         incomplete_data = [
             {
                 "name": "Test Manhwa",
-                "description": "Test description"
+                "description": "Test description",
                 # Missing: rating, popularity, genres, tags
             }
         ]
 
         catalog_path = temp_data_dir / "incomplete.json"
-        with open(catalog_path, 'w') as f:
+        with open(catalog_path, "w") as f:
             json.dump(incomplete_data, f)
 
         recommender = HybridManwhaRecommender()
         df = recommender.prepare_data(str(catalog_path))
 
         # Should fill in missing fields
-        assert df.iloc[0]['description'] == "Test description"
-        assert df.iloc[0]['rating'] > 0  # Should have default
-        assert df.iloc[0]['popularity'] == 0
-        assert isinstance(df.iloc[0]['genres'], list)
-        assert isinstance(df.iloc[0]['tags'], list)
+        assert df.iloc[0]["description"] == "Test description"
+        assert df.iloc[0]["rating"] > 0  # Should have default
+        assert df.iloc[0]["popularity"] == 0
+        assert isinstance(df.iloc[0]["genres"], list)
+        assert isinstance(df.iloc[0]["tags"], list)
 
     def test_legacy_data_format_supported(self, temp_data_dir):
         """Test that older data format with 'tags' but no 'genres' works."""
@@ -75,20 +75,20 @@ class TestDataPreparation:
                 "name": "Tower of God",
                 "description": "Tower story",
                 "rating": 4.5,
-                "tags": ["Action", "Adventure"]  # Only tags, no genres
+                "tags": ["Action", "Adventure"],  # Only tags, no genres
             }
         ]
 
         catalog_path = temp_data_dir / "legacy.json"
-        with open(catalog_path, 'w') as f:
+        with open(catalog_path, "w") as f:
             json.dump(legacy_data, f)
 
         recommender = HybridManwhaRecommender()
         df = recommender.prepare_data(str(catalog_path))
 
         # Should use tags as genres
-        assert 'genres' in df.columns
-        assert len(df.iloc[0]['genres']) > 0
+        assert "genres" in df.columns
+        assert len(df.iloc[0]["genres"]) > 0
 
 
 @pytest.mark.unit
@@ -126,10 +126,7 @@ class TestContentFeatureBuilding:
         assert rec.content_model is not None
 
         # Should be able to query the model
-        distances, indices = rec.content_model.kneighbors(
-            rec.feature_matrix[0],
-            n_neighbors=2
-        )
+        distances, indices = rec.content_model.kneighbors(rec.feature_matrix[0], n_neighbors=2)
 
         assert len(distances[0]) == 2
         assert len(indices[0]) == 2
@@ -171,7 +168,7 @@ class TestFuzzyTitleMatching:
         rec = trained_recommender
 
         # Use a title we know exists
-        existing_title = rec.df.iloc[0]['name']
+        existing_title = rec.df.iloc[0]["name"]
         idx = rec._find_manhwa_index(existing_title)
 
         assert idx is not None
@@ -181,7 +178,7 @@ class TestFuzzyTitleMatching:
         """Test that matching is case-insensitive."""
         rec = trained_recommender
 
-        existing_title = rec.df.iloc[0]['name']
+        existing_title = rec.df.iloc[0]["name"]
 
         # Test with different cases
         idx_lower = rec._find_manhwa_index(existing_title.lower())
@@ -203,7 +200,7 @@ class TestFuzzyTitleMatching:
         idx = rec._find_manhwa_index(typo_title)
 
         # If "Solo Leveling" exists in the test data, should find it
-        if any("Solo" in name for name in rec.df['name']):
+        if any("Solo" in name for name in rec.df["name"]):
             assert idx is not None
 
     def test_no_match_for_nonexistent(self, trained_recommender):
@@ -223,7 +220,7 @@ class TestContentRecommendations:
         """Test that content-based recommendations are generated."""
         rec = trained_recommender
 
-        title = rec.df.iloc[0]['name']
+        title = rec.df.iloc[0]["name"]
         recs = rec.get_content_recommendations(title, n_recommendations=5)
 
         assert recs is not None
@@ -238,7 +235,7 @@ class TestContentRecommendations:
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
             recs = rec.get_content_recommendations(title, n_recommendations=5)
 
             # Input index (0) should not be in results
@@ -250,7 +247,7 @@ class TestContentRecommendations:
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
             recs = rec.get_content_recommendations(title, n_recommendations=5)
 
             for idx, score in recs:
@@ -263,7 +260,7 @@ class TestContentRecommendations:
         rec = trained_recommender
 
         if len(rec.df) > 2:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
             recs = rec.get_content_recommendations(title, n_recommendations=5)
 
             if len(recs) > 1:
@@ -283,16 +280,12 @@ class TestUserPreferenceScoring:
         # Find a manhwa with Action genre
         action_idx = None
         for idx, row in rec.df.iterrows():
-            if "Action" in row['genres']:
+            if "Action" in row["genres"]:
                 action_idx = idx
                 break
 
         if action_idx is not None:
-            user_profile = {
-                'liked_genres': ['Action'],
-                'disliked_genres': [],
-                'min_rating': 0
-            }
+            user_profile = {"liked_genres": ["Action"], "disliked_genres": [], "min_rating": 0}
 
             score = rec.get_user_preference_score(action_idx, user_profile)
 
@@ -306,16 +299,12 @@ class TestUserPreferenceScoring:
         # Find a manhwa with Romance genre (if exists)
         romance_idx = None
         for idx, row in rec.df.iterrows():
-            if "Romance" in row['genres']:
+            if "Romance" in row["genres"]:
                 romance_idx = idx
                 break
 
         if romance_idx is not None:
-            user_profile = {
-                'liked_genres': [],
-                'disliked_genres': ['Romance'],
-                'min_rating': 0
-            }
+            user_profile = {"liked_genres": [], "disliked_genres": ["Romance"], "min_rating": 0}
 
             score = rec.get_user_preference_score(romance_idx, user_profile)
 
@@ -327,14 +316,10 @@ class TestUserPreferenceScoring:
         rec = trained_recommender
 
         manhwa_idx = 0
-        manhwa_rating = rec.df.iloc[manhwa_idx]['rating']
+        manhwa_rating = rec.df.iloc[manhwa_idx]["rating"]
 
         # Set threshold above manhwa rating
-        user_profile = {
-            'liked_genres': [],
-            'disliked_genres': [],
-            'min_rating': manhwa_rating + 1
-        }
+        user_profile = {"liked_genres": [], "disliked_genres": [], "min_rating": manhwa_rating + 1}
 
         score = rec.get_user_preference_score(manhwa_idx, user_profile)
 
@@ -351,7 +336,7 @@ class TestHybridRecommendations:
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
             recs = rec.recommend(title, n_recommendations=5)
 
             assert recs is not None
@@ -363,36 +348,32 @@ class TestHybridRecommendations:
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
             recs = rec.recommend(title, n_recommendations=5)
 
             for manhwa in recs:
-                assert 'recommendation_score' in manhwa
-                assert isinstance(manhwa['recommendation_score'], float)
+                assert "recommendation_score" in manhwa
+                assert isinstance(manhwa["recommendation_score"], float)
                 # Allow for floating point precision issues (scores should be >= 0, within tolerance)
-                assert manhwa['recommendation_score'] >= -1e-10
+                assert manhwa["recommendation_score"] >= -1e-10
 
     def test_hybrid_with_user_profile(self, trained_recommender):
         """Test that user profile affects recommendations."""
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
             # Get recommendations without user profile
             recs_no_profile = rec.recommend(title, n_recommendations=5)
 
             # Get recommendations with user profile
             user_profile = {
-                'liked_genres': ['Action', 'Fantasy'],
-                'disliked_genres': ['Romance'],
-                'min_rating': 4.0
+                "liked_genres": ["Action", "Fantasy"],
+                "disliked_genres": ["Romance"],
+                "min_rating": 4.0,
             }
-            recs_with_profile = rec.recommend(
-                title,
-                n_recommendations=5,
-                user_profile=user_profile
-            )
+            recs_with_profile = rec.recommend(title, n_recommendations=5, user_profile=user_profile)
 
             # Results should potentially differ
             assert recs_with_profile is not None
@@ -403,11 +384,11 @@ class TestHybridRecommendations:
         rec = trained_recommender
 
         if len(rec.df) > 2:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
             recs = rec.recommend(title, n_recommendations=5)
 
             if len(recs) > 1:
-                scores = [m['recommendation_score'] for m in recs]
+                scores = [m["recommendation_score"] for m in recs]
                 # Should be in descending order
                 assert scores == sorted(scores, reverse=True)
 
@@ -421,53 +402,46 @@ class TestFiltering:
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
-            filters = {
-                'genres': ['Action']
-            }
+            filters = {"genres": ["Action"]}
 
             recs = rec.recommend(title, n_recommendations=10, filters=filters)
 
             # All results should have Action genre
             for manhwa in recs:
-                assert 'Action' in manhwa['genres']
+                assert "Action" in manhwa["genres"]
 
     def test_rating_filter(self, trained_recommender):
         """Test that rating filtering works."""
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
-            filters = {
-                'min_rating': 4.5
-            }
+            filters = {"min_rating": 4.5}
 
             recs = rec.recommend(title, n_recommendations=10, filters=filters)
 
             # All results should have rating >= 4.5
             for manhwa in recs:
-                assert manhwa['rating'] >= 4.5
+                assert manhwa["rating"] >= 4.5
 
     def test_multiple_filters(self, trained_recommender):
         """Test that multiple filters work together."""
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
-            filters = {
-                'genres': ['Action'],
-                'min_rating': 4.0
-            }
+            filters = {"genres": ["Action"], "min_rating": 4.0}
 
             recs = rec.recommend(title, n_recommendations=10, filters=filters)
 
             # All results should match all filters
             for manhwa in recs:
-                assert 'Action' in manhwa['genres']
-                assert manhwa['rating'] >= 4.0
+                assert "Action" in manhwa["genres"]
+                assert manhwa["rating"] >= 4.0
 
 
 @pytest.mark.unit
@@ -504,12 +478,10 @@ class TestModelPersistence:
         assert new_rec.df is not None
         assert len(new_rec.df) == len(trained_recommender.df)
 
-    def test_loaded_model_produces_same_recommendations(
-        self, trained_recommender, temp_model_dir
-    ):
+    def test_loaded_model_produces_same_recommendations(self, trained_recommender, temp_model_dir):
         """Test that loaded model produces same recommendations."""
         # Get recommendations from original
-        title = trained_recommender.df.iloc[0]['name']
+        title = trained_recommender.df.iloc[0]["name"]
         original_recs = trained_recommender.recommend(title, n_recommendations=5)
 
         # Save and load model
@@ -526,8 +498,8 @@ class TestModelPersistence:
 
         # Scores should be very close (allowing for small numerical differences)
         for orig, loaded in zip(original_recs, loaded_recs):
-            assert orig['name'] == loaded['name']
-            assert abs(orig['recommendation_score'] - loaded['recommendation_score']) < 0.01
+            assert orig["name"] == loaded["name"]
+            assert abs(orig["recommendation_score"] - loaded["recommendation_score"]) < 0.01
 
 
 @pytest.mark.unit
@@ -549,7 +521,7 @@ class TestEdgeCases:
         rec = trained_recommender
 
         # Request way more than we have
-        title = rec.df.iloc[0]['name']
+        title = rec.df.iloc[0]["name"]
         recs = rec.recommend(title, n_recommendations=10000)
 
         # Should return at most (total - 1) recommendations (excluding self)
@@ -560,7 +532,7 @@ class TestEdgeCases:
         rec = trained_recommender
 
         if len(rec.df) > 1:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
             empty_profile = {}
             recs = rec.recommend(title, n_recommendations=5, user_profile=empty_profile)
@@ -626,19 +598,19 @@ class TestModelEvaluation:
         metrics = rec.evaluate_recommendations(test_df, k=5)
 
         # Should return all expected metrics
-        assert 'precision@k' in metrics
-        assert 'recall@k' in metrics
-        assert 'ndcg@k' in metrics
-        assert 'mrr' in metrics
-        assert 'hit_rate@k' in metrics
-        assert metrics['k'] == 5
+        assert "precision@k" in metrics
+        assert "recall@k" in metrics
+        assert "ndcg@k" in metrics
+        assert "mrr" in metrics
+        assert "hit_rate@k" in metrics
+        assert metrics["k"] == 5
 
         # Metrics should be in valid range
-        assert 0 <= metrics['precision@k'] <= 1
-        assert 0 <= metrics['recall@k'] <= 1
-        assert 0 <= metrics['ndcg@k'] <= 1
-        assert 0 <= metrics['mrr'] <= 1
-        assert 0 <= metrics['hit_rate@k'] <= 1
+        assert 0 <= metrics["precision@k"] <= 1
+        assert 0 <= metrics["recall@k"] <= 1
+        assert 0 <= metrics["ndcg@k"] <= 1
+        assert 0 <= metrics["mrr"] <= 1
+        assert 0 <= metrics["hit_rate@k"] <= 1
 
     def test_evaluate_recommendations_without_model(self, sample_catalog_file):
         """Test that evaluation fails gracefully without trained model."""
@@ -658,14 +630,14 @@ class TestModelEvaluation:
             catalog_path=sample_catalog_file,
             output_dir=str(temp_model_dir),
             evaluate=True,
-            test_ratio=0.3
+            test_ratio=0.3,
         )
 
         # With small dataset (6 items), evaluation may be skipped (requires > 20 items)
         # This is expected behavior, so we test both cases
         if metrics is not None:
             # Evaluation ran successfully
-            assert 'precision@k' in metrics
+            assert "precision@k" in metrics
 
             # Should save metrics file
             metrics_file = temp_model_dir / "evaluation_metrics.json"
@@ -673,6 +645,7 @@ class TestModelEvaluation:
 
             # File should contain valid JSON
             import json
+
             with open(metrics_file) as f:
                 saved_metrics = json.load(f)
             assert saved_metrics == metrics
@@ -689,11 +662,7 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_invalid_index_negative(self, trained_recommender):
         """Test that negative index raises ValueError."""
         rec = trained_recommender
-        user_profile = {
-            'liked_genres': ['Action'],
-            'disliked_genres': [],
-            'min_rating': 0
-        }
+        user_profile = {"liked_genres": ["Action"], "disliked_genres": [], "min_rating": 0}
 
         # Negative indexing should raise ValueError (bounds checking added)
         with pytest.raises(ValueError, match="non-negative"):
@@ -702,11 +671,7 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_invalid_index_too_large(self, trained_recommender):
         """Test that index >= len(df) raises ValueError."""
         rec = trained_recommender
-        user_profile = {
-            'liked_genres': ['Action'],
-            'disliked_genres': [],
-            'min_rating': 0
-        }
+        user_profile = {"liked_genres": ["Action"], "disliked_genres": [], "min_rating": 0}
 
         invalid_idx = len(rec.df) + 10
         with pytest.raises(ValueError, match="out of bounds"):
@@ -715,11 +680,7 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_empty_liked_genres(self, trained_recommender):
         """Test scoring with empty liked_genres list."""
         rec = trained_recommender
-        user_profile = {
-            'liked_genres': [],
-            'disliked_genres': [],
-            'min_rating': 0
-        }
+        user_profile = {"liked_genres": [], "disliked_genres": [], "min_rating": 0}
 
         score = rec.get_user_preference_score(0, user_profile)
 
@@ -730,11 +691,7 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_empty_disliked_genres(self, trained_recommender):
         """Test scoring with empty disliked_genres list."""
         rec = trained_recommender
-        user_profile = {
-            'liked_genres': ['Action'],
-            'disliked_genres': [],
-            'min_rating': 0
-        }
+        user_profile = {"liked_genres": ["Action"], "disliked_genres": [], "min_rating": 0}
 
         score = rec.get_user_preference_score(0, user_profile)
 
@@ -745,27 +702,25 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_manhwa_no_genres(self, temp_data_dir):
         """Test scoring manhwa that has no genres."""
         # Create catalog with manhwa without genres
-        catalog_data = [{
-            "name": "No Genre Manhwa",
-            "description": "A manhwa without genres",
-            "rating": 4.0,
-            "popularity": 1000,
-            "genres": [],
-            "tags": []
-        }]
+        catalog_data = [
+            {
+                "name": "No Genre Manhwa",
+                "description": "A manhwa without genres",
+                "rating": 4.0,
+                "popularity": 1000,
+                "genres": [],
+                "tags": [],
+            }
+        ]
 
         catalog_path = temp_data_dir / "no_genres.json"
-        with open(catalog_path, 'w') as f:
+        with open(catalog_path, "w") as f:
             json.dump(catalog_data, f)
 
         rec = HybridManwhaRecommender()
         rec.prepare_data(str(catalog_path))
 
-        user_profile = {
-            'liked_genres': ['Action'],
-            'disliked_genres': ['Romance'],
-            'min_rating': 0
-        }
+        user_profile = {"liked_genres": ["Action"], "disliked_genres": ["Romance"], "min_rating": 0}
 
         score = rec.get_user_preference_score(0, user_profile)
 
@@ -776,11 +731,7 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_extreme_rating_threshold_min(self, trained_recommender):
         """Test scoring with min_rating=0."""
         rec = trained_recommender
-        user_profile = {
-            'liked_genres': [],
-            'disliked_genres': [],
-            'min_rating': 0
-        }
+        user_profile = {"liked_genres": [], "disliked_genres": [], "min_rating": 0}
 
         score = rec.get_user_preference_score(0, user_profile)
 
@@ -791,11 +742,7 @@ class TestUserPreferenceScoringEdgeCases:
     def test_get_user_preference_score_extreme_rating_threshold_max(self, trained_recommender):
         """Test scoring with min_rating=5 (maximum)."""
         rec = trained_recommender
-        user_profile = {
-            'liked_genres': [],
-            'disliked_genres': [],
-            'min_rating': 5.0
-        }
+        user_profile = {"liked_genres": [], "disliked_genres": [], "min_rating": 5.0}
 
         score = rec.get_user_preference_score(0, user_profile)
 
@@ -810,17 +757,17 @@ class TestUserPreferenceScoringEdgeCases:
         # Find manhwa with Action genre
         action_idx = None
         for idx, row in rec.df.iterrows():
-            if "Action" in row['genres']:
+            if "Action" in row["genres"]:
                 action_idx = idx
                 break
 
         if action_idx is not None:
             manhwa = rec.df.iloc[action_idx]
             user_profile = {
-                'liked_genres': list(manhwa['genres']),  # All genres matched
-                'disliked_genres': [],
-                'min_rating': manhwa['rating'] - 1,  # Below actual rating
-                'preferred_status': [manhwa.get('status', 'RELEASING')]
+                "liked_genres": list(manhwa["genres"]),  # All genres matched
+                "disliked_genres": [],
+                "min_rating": manhwa["rating"] - 1,  # Below actual rating
+                "preferred_status": [manhwa.get("status", "RELEASING")],
             }
 
             score = rec.get_user_preference_score(action_idx, user_profile)
@@ -837,9 +784,9 @@ class TestUserPreferenceScoringEdgeCases:
         manhwa = rec.df.iloc[idx]
 
         user_profile = {
-            'liked_genres': ['Nonexistent Genre'],
-            'disliked_genres': list(manhwa['genres']),  # Dislike all genres
-            'min_rating': manhwa['rating'] + 1  # Above actual rating
+            "liked_genres": ["Nonexistent Genre"],
+            "disliked_genres": list(manhwa["genres"]),  # Dislike all genres
+            "min_rating": manhwa["rating"] + 1,  # Above actual rating
         }
 
         score = rec.get_user_preference_score(idx, user_profile)
@@ -903,8 +850,8 @@ class TestDiversityAndMMRReranking:
             # Select items from different ends of dataset (likely different)
             diverse_recs = [
                 rec.df.iloc[0].to_dict(),
-                rec.df.iloc[len(rec.df)//2].to_dict(),
-                rec.df.iloc[-1].to_dict()
+                rec.df.iloc[len(rec.df) // 2].to_dict(),
+                rec.df.iloc[-1].to_dict(),
             ]
 
             diversity = rec.calculate_diversity(diverse_recs)
@@ -918,7 +865,7 @@ class TestDiversityAndMMRReranking:
         rec = trained_recommender
 
         if len(rec.df) > 3:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
             # Get recommendations with no diversity
             recs_no_diversity = rec.recommend(title, n_recommendations=5, diversity=0.0)
@@ -927,7 +874,7 @@ class TestDiversityAndMMRReranking:
             assert len(recs_no_diversity) > 0
 
             # Should be sorted by relevance score
-            scores = [r['recommendation_score'] for r in recs_no_diversity]
+            scores = [r["recommendation_score"] for r in recs_no_diversity]
             assert scores == sorted(scores, reverse=True)
 
     def test_mmr_rerank_max_diversity_weight(self, trained_recommender):
@@ -935,7 +882,7 @@ class TestDiversityAndMMRReranking:
         rec = trained_recommender
 
         if len(rec.df) > 3:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
             # Get recommendations with maximum diversity
             recs_max_diversity = rec.recommend(title, n_recommendations=5, diversity=1.0)
@@ -945,15 +892,15 @@ class TestDiversityAndMMRReranking:
 
             # All results should be valid manhwa
             for r in recs_max_diversity:
-                assert 'name' in r
-                assert 'recommendation_score' in r
+                assert "name" in r
+                assert "recommendation_score" in r
 
     def test_mmr_rerank_changes_order(self, trained_recommender):
         """Test that MMR re-ranking produces different order than pure relevance."""
         rec = trained_recommender
 
         if len(rec.df) > 5:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
             # Get recommendations without diversity
             recs_no_div = rec.recommend(title, n_recommendations=5, diversity=0.0)
@@ -966,8 +913,8 @@ class TestDiversityAndMMRReranking:
             assert len(recs_with_div) > 0
 
             # At least some positions should differ (not guaranteed but likely)
-            names_no_div = [r['name'] for r in recs_no_div]
-            names_with_div = [r['name'] for r in recs_with_div]
+            names_no_div = [r["name"] for r in recs_no_div]
+            names_with_div = [r["name"] for r in recs_with_div]
 
             # They should contain potentially different items or orders
             assert isinstance(names_no_div, list)
@@ -978,7 +925,7 @@ class TestDiversityAndMMRReranking:
         rec = trained_recommender
 
         if len(rec.df) >= 2:
-            title = rec.df.iloc[0]['name']
+            title = rec.df.iloc[0]["name"]
 
             # Request almost all available items
             n_recs = len(rec.df) - 1
@@ -997,7 +944,7 @@ class TestConcurrentAccess:
         import threading
 
         rec = trained_recommender
-        title = rec.df.iloc[0]['name']
+        title = rec.df.iloc[0]["name"]
         results = []
         errors = []
 
@@ -1080,7 +1027,7 @@ class TestConcurrentAccess:
         def access_cache():
             try:
                 # This will trigger cache build if not exists
-                rec._find_manhwa_index(rec.df.iloc[0]['name'])
+                rec._find_manhwa_index(rec.df.iloc[0]["name"])
             except Exception as e:
                 errors.append(e)
 
@@ -1107,7 +1054,7 @@ class TestConcurrentAccess:
         import random
 
         rec = trained_recommender
-        titles = rec.df['name'].tolist()
+        titles = rec.df["name"].tolist()
 
         errors = []
 
@@ -1146,7 +1093,7 @@ class TestConcurrentAccess:
 
         def concurrent_reads():
             # Just read operations, no modifications
-            rec.recommend(rec.df.iloc[0]['name'], n_recommendations=2)
+            rec.recommend(rec.df.iloc[0]["name"], n_recommendations=2)
 
         # Create multiple threads
         threads = [threading.Thread(target=concurrent_reads) for _ in range(10)]
@@ -1183,10 +1130,10 @@ class TestAdditionalEdgeCases:
         metrics = rec.evaluate_recommendations(test_df, k=5)
 
         # NDCG should be between 0 and 1
-        assert 0 <= metrics['ndcg@k'] <= 1
+        assert 0 <= metrics["ndcg@k"] <= 1
 
         # NDCG should be a float
-        assert isinstance(metrics['ndcg@k'], float)
+        assert isinstance(metrics["ndcg@k"], float)
 
     def test_cold_start_zero_popularity(self, temp_data_dir):
         """Test cold start recommendations when all items have zero popularity."""
@@ -1197,13 +1144,13 @@ class TestAdditionalEdgeCases:
                 "rating": 3.0 + (i * 0.2),
                 "popularity": 0,  # All zero
                 "genres": ["Action"],
-                "tags": []
+                "tags": [],
             }
             for i in range(5)
         ]
 
         catalog_path = temp_data_dir / "zero_popularity.json"
-        with open(catalog_path, 'w') as f:
+        with open(catalog_path, "w") as f:
             json.dump(catalog_data, f)
 
         rec = HybridManwhaRecommender()
@@ -1218,28 +1165,24 @@ class TestAdditionalEdgeCases:
 
     def test_weight_validation_in_init(self):
         """Test that custom weights are properly initialized."""
-        custom_weights = {
-            'content': 0.5,
-            'genre_similarity': 0.3,
-            'user_pref': 0.2
-        }
+        custom_weights = {"content": 0.5, "genre_similarity": 0.3, "user_pref": 0.2}
 
         rec = HybridManwhaRecommender(weights=custom_weights)
 
         assert rec.weights == custom_weights
-        assert rec.weights['content'] == 0.5
-        assert rec.weights['genre_similarity'] == 0.3
-        assert rec.weights['user_pref'] == 0.2
+        assert rec.weights["content"] == 0.5
+        assert rec.weights["genre_similarity"] == 0.3
+        assert rec.weights["user_pref"] == 0.2
 
     def test_hyperparameter_tuning_cross_validation(self, sample_catalog_file):
         """Test hyperparameter tuning with cross-validation."""
         # Use custom tfidf params suitable for small dataset
         rec = HybridManwhaRecommender(
             tfidf_params={
-                'max_features': 1000,
-                'min_df': 1,  # Allow all documents for small dataset
-                'max_df': 1.0,  # Allow all documents
-                'ngram_range': (1, 1)
+                "max_features": 1000,
+                "min_df": 1,  # Allow all documents for small dataset
+                "max_df": 1.0,  # Allow all documents
+                "ngram_range": (1, 1),
             }
         )
         rec.prepare_data(sample_catalog_file)
@@ -1249,28 +1192,24 @@ class TestAdditionalEdgeCases:
 
         # Small parameter grid for testing with appropriate params for small data
         param_grid = {
-            'weights': [
-                {'content': 0.5, 'genre_similarity': 0.3, 'user_pref': 0.2},
+            "weights": [
+                {"content": 0.5, "genre_similarity": 0.3, "user_pref": 0.2},
             ],
-            'tfidf_max_features': [1000],
-            'tfidf_min_df': [1],  # Changed from 2 to 1 for small dataset
+            "tfidf_max_features": [1000],
+            "tfidf_min_df": [1],  # Changed from 2 to 1 for small dataset
         }
 
         results = rec.tune_hyperparameters(
-            train_df=train_df,
-            val_df=val_df,
-            param_grid=param_grid,
-            metric='ndcg@k',
-            k=5
+            train_df=train_df, val_df=val_df, param_grid=param_grid, metric="ndcg@k", k=5
         )
 
         # Should return results structure
-        assert 'best_params' in results
-        assert 'best_score' in results
-        assert 'all_results' in results
+        assert "best_params" in results
+        assert "best_score" in results
+        assert "all_results" in results
 
         # Best score should be valid
-        assert isinstance(results['best_score'], (int, float))
+        assert isinstance(results["best_score"], (int, float))
 
     def test_evaluate_no_data_leakage(self, sample_catalog_file):
         """Test that evaluation doesn't leak test data into training."""
@@ -1285,8 +1224,8 @@ class TestAdditionalEdgeCases:
         rec.build_content_features()
 
         # Verify test items are NOT in training data
-        train_names = set(train_df['name'].tolist())
-        test_names = set(test_df['name'].tolist())
+        train_names = set(train_df["name"].tolist())
+        test_names = set(test_df["name"].tolist())
 
         # No overlap between train and test
         assert len(train_names & test_names) == 0
@@ -1296,7 +1235,7 @@ class TestAdditionalEdgeCases:
         rec = trained_recommender
 
         # Make some recommendations
-        title = rec.df.iloc[0]['name']
+        title = rec.df.iloc[0]["name"]
         rec.recommend(title, n_recommendations=3)
 
         # Coverage should track recommended items
@@ -1318,23 +1257,18 @@ class TestAdditionalEdgeCases:
                 "rating": 4.0,
                 "popularity": 1000 * (i + 1),
                 "genres": ["Action"],
-                "tags": []
+                "tags": [],
             }
             for i in range(3)
         ]
 
         catalog_path = temp_data_dir / "small_items.json"
-        with open(catalog_path, 'w') as f:
+        with open(catalog_path, "w") as f:
             json.dump(catalog_data, f)
 
         # Use tfidf params suitable for small dataset
         rec = HybridManwhaRecommender(
-            tfidf_params={
-                'max_features': 100,
-                'min_df': 1,
-                'max_df': 1.0,
-                'ngram_range': (1, 1)
-            }
+            tfidf_params={"max_features": 100, "min_df": 1, "max_df": 1.0, "ngram_range": (1, 1)}
         )
         rec.prepare_data(str(catalog_path))
         rec.build_content_features()

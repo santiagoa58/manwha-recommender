@@ -13,10 +13,7 @@ def mangaupdates_entry():
     return {
         "series_id": 456,
         "title": "Solo Leveling",
-        "associated": [
-            {"title": "Na Honjaman Level-Up"},
-            {"title": "Only I Level Up"}
-        ],
+        "associated": [{"title": "Na Honjaman Level-Up"}, {"title": "Only I Level Up"}],
         "type": "Manhwa",
         "description": "E-class hunter story",
         "bayesian_rating": 9.8,
@@ -24,36 +21,21 @@ def mangaupdates_entry():
         "year": "2018",
         "status": "Complete",
         "latest_chapter": 200,
-        "genres": [
-            {"genre": "Action"},
-            {"genre": "Fantasy"}
-        ],
-        "categories": [
-            {"category": "Dungeons"},
-            {"category": "Overpowered MC"}
-        ],
-        "image": {
-            "url": {
-                "original": "https://example.com/image.jpg"
-            }
-        },
-        "authors": [
-            {"name": "Chugong", "type": "Story"},
-            {"name": "DUBU", "type": "Art"}
-        ],
+        "genres": [{"genre": "Action"}, {"genre": "Fantasy"}],
+        "categories": [{"category": "Dungeons"}, {"category": "Overpowered MC"}],
+        "image": {"url": {"original": "https://example.com/image.jpg"}},
+        "authors": [{"name": "Chugong", "type": "Story"}, {"name": "DUBU", "type": "Art"}],
         "publishers": [
             {"publisher_name": "Kakao", "type": "Original"},
-            {"publisher_name": "Yen Press", "type": "English"}
+            {"publisher_name": "Yen Press", "type": "English"},
         ],
         "recommendations": [
             {"series_name": "Tower of God"},
-            {"series_name": "The Beginning After The End"}
+            {"series_name": "The Beginning After The End"},
         ],
-        "rank": {
-            "position": 12
-        },
+        "rank": {"position": 12},
         "url": "https://www.mangaupdates.com/series/456",
-        "forum_id": 789
+        "forum_id": 789,
     }
 
 
@@ -97,9 +79,7 @@ class TestMangaUpdatesTransformation:
         collector = MangaUpdatesCollector()
 
         # Add many associated names
-        mangaupdates_entry["associated"].extend([
-            {"title": f"Alt Title {i}"} for i in range(10)
-        ])
+        mangaupdates_entry["associated"].extend([{"title": f"Alt Title {i}"} for i in range(10)])
 
         transformed = collector._transform_entry(mangaupdates_entry)
 
@@ -144,7 +124,7 @@ class TestMangaUpdatesTransformation:
             "title": "Ongoing",
             "status": "Ongoing",
             "genres": [],
-            "categories": []
+            "categories": [],
         }
 
         transformed = collector._transform_entry(entry)
@@ -160,7 +140,7 @@ class TestMangaUpdatesTransformation:
             "title": "Hiatus",
             "status": "Hiatus",
             "genres": [],
-            "categories": []
+            "categories": [],
         }
 
         transformed = collector._transform_entry(entry)
@@ -176,7 +156,7 @@ class TestMangaUpdatesTransformation:
             "title": "Cancelled",
             "status": "Cancelled",
             "genres": [],
-            "categories": []
+            "categories": [],
         }
 
         transformed = collector._transform_entry(entry)
@@ -202,7 +182,7 @@ class TestMangaUpdatesTransformation:
             "year": "2020",
             "status": "Ongoing",
             "genres": [],
-            "categories": []
+            "categories": [],
         }
 
         transformed = collector._transform_entry(entry)
@@ -218,7 +198,7 @@ class TestMangaUpdatesTransformation:
             "title": "No Year",
             "status": "Complete",
             "genres": [],
-            "categories": []
+            "categories": [],
         }
 
         transformed = collector._transform_entry(entry)
@@ -263,9 +243,9 @@ class TestMangaUpdatesTransformation:
         collector = MangaUpdatesCollector()
 
         # Add many recommendations
-        mangaupdates_entry["recommendations"].extend([
-            {"series_name": f"Series {i}"} for i in range(20)
-        ])
+        mangaupdates_entry["recommendations"].extend(
+            [{"series_name": f"Series {i}"} for i in range(20)]
+        )
 
         transformed = collector._transform_entry(mangaupdates_entry)
 
@@ -284,12 +264,7 @@ class TestMangaUpdatesTransformation:
         """Test handling of missing image."""
         collector = MangaUpdatesCollector()
 
-        entry = {
-            "series_id": 1,
-            "title": "No Image",
-            "genres": [],
-            "categories": []
-        }
+        entry = {"series_id": 1, "title": "No Image", "genres": [], "categories": []}
 
         transformed = collector._transform_entry(entry)
 
@@ -323,12 +298,7 @@ class TestMangaUpdatesTransformation:
         """Test handling of missing rank."""
         collector = MangaUpdatesCollector()
 
-        entry = {
-            "series_id": 1,
-            "title": "No Rank",
-            "genres": [],
-            "categories": []
-        }
+        entry = {"series_id": 1, "title": "No Rank", "genres": [], "categories": []}
 
         transformed = collector._transform_entry(entry)
 
@@ -351,12 +321,7 @@ class TestMangaUpdatesTransformation:
         """Test that missing optional fields don't break transformation."""
         collector = MangaUpdatesCollector()
 
-        minimal_entry = {
-            "series_id": 1,
-            "title": "Minimal Entry",
-            "genres": [],
-            "categories": []
-        }
+        minimal_entry = {"series_id": 1, "title": "Minimal Entry", "genres": [], "categories": []}
 
         transformed = collector._transform_entry(minimal_entry)
 
@@ -369,12 +334,7 @@ class TestMangaUpdatesTransformation:
         """Test handling when bayesian rating is missing."""
         collector = MangaUpdatesCollector()
 
-        entry = {
-            "series_id": 1,
-            "title": "No Rating",
-            "genres": [],
-            "categories": []
-        }
+        entry = {"series_id": 1, "title": "No Rating", "genres": [], "categories": []}
 
         transformed = collector._transform_entry(entry)
 
@@ -394,13 +354,7 @@ class TestMangaUpdatesTransformation:
         """Test country for non-manhwa entries."""
         collector = MangaUpdatesCollector()
 
-        entry = {
-            "series_id": 1,
-            "title": "Manga",
-            "type": "Manga",
-            "genres": [],
-            "categories": []
-        }
+        entry = {"series_id": 1, "title": "Manga", "type": "Manga", "genres": [], "categories": []}
 
         transformed = collector._transform_entry(entry)
 
@@ -411,9 +365,7 @@ class TestMangaUpdatesTransformation:
         collector = MangaUpdatesCollector()
 
         # Entry that will cause error (missing series_id)
-        broken_entry = {
-            "title": "Broken"
-        }
+        broken_entry = {"title": "Broken"}
 
         transformed = collector._transform_entry(broken_entry)
 
