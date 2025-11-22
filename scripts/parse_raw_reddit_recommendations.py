@@ -1,6 +1,10 @@
-from typing import List, Dict, Set
-import json
+from typing import List, Dict
 import re
+from src.utils.constants import (
+    RAW_REDDIT_RECOMMENDATIONS_TXT,
+    RAW_REDDIT_RECOMMENDATIONS_JSON,
+)
+from src.utils.file_io import load_text_lines, save_json
 
 NO_SUBCATEGORY = None
 # Dictionary of terms to know
@@ -29,18 +33,20 @@ RATINGS_DICTIONARY = {
     "D": ["Not good/Dropped", "Dropped", "Not good"],
 }
 
-RATINGS = {
-    "P": 5.0,
-    "E": 4.0,
-    "G": 3.0,
-    "S": 2.0,
-    "D": 1.0,
-}
+# Rating scale constants with clear names
+RATING_PEAK = 5.0  # Peak - best quality
+RATING_ENJOYED = 4.0  # Enjoyed - very good
+RATING_GOOD = 3.0  # Good - decent quality
+RATING_SUCKS = 2.0  # Sucks - below average
+RATING_DROPPED = 1.0  # Dropped - poor quality
 
-RAW_REDDIT_RECOMMENDATIONS_TXT_FILE_PATH = "data/raw_manwha_reddit_recommendations.txt"
-RAW_REDDIT_RECOMMENDATIONS_JSON_FILE_PATH = (
-    "data/raw_manwha_reddit_recommendations.json"
-)
+RATINGS = {
+    "P": RATING_PEAK,
+    "E": RATING_ENJOYED,
+    "G": RATING_GOOD,
+    "S": RATING_SUCKS,
+    "D": RATING_DROPPED,
+}
 
 
 def get_rating_ratio(rating_ratio: str) -> float:
@@ -91,10 +97,16 @@ def get_notes_from_title(title: str):
     return None
 
 
-def is_alt_name(str: str):
-    """Check if the string is an alt name"""
-    # alt names are surrounded by ""
-    return str.lower().startswith("or,")
+def is_alt_name(text: str) -> bool:
+    """Check if the string is an alt name (starts with 'or,').
+
+    Args:
+        text: String to check
+
+    Returns:
+        True if text starts with 'or,' (case-insensitive)
+    """
+    return text.lower().startswith("or,")
 
 
 def get_alt_names_from_notes(notes: List[str]):
@@ -135,7 +147,7 @@ def get_categories(lines: List[str]):
     return set(categories)
 
 
-def group_by_category(lines: List[str], categories: Set[str]):
+def group_by_category(lines: List[str], categories: set[str]):
     """Group the lines by category"""
     grouped_lines = {}
     current_category = None
@@ -149,7 +161,24 @@ def group_by_category(lines: List[str], categories: Set[str]):
 
 
 def preprocess(grouped_lines: Dict[str, List[str]]):
-    """Extract the data from the grouped lines"""
+    """Parse raw Reddit recommendation text into structured data.
+
+    Processes lines of text in the format:
+    - Title lines (may include rating in parentheses)
+    - Author/Artist lines
+    - Category/subcategory lines
+    - Alt name lines (starting with "or,")
+
+    Args:
+        grouped_lines: Dictionary mapping category names to lists of recommendation text lines
+
+    Returns:
+        List of dictionaries with keys: category, subcategory, title, rating,
+        notes, alt_names
+
+    Raises:
+        ValueError: If data format is invalid
+    """
     data = []
     for category, lines in grouped_lines.items():
         subcategory = NO_SUBCATEGORY
@@ -226,24 +255,19 @@ def group_by_title(data_list: List[Dict[str, str]]):
 
 
 def load_raw_data():
-    with open(RAW_REDDIT_RECOMMENDATIONS_TXT_FILE_PATH, "r") as f:
-        lines = f.readlines()
-        return [line.strip() for line in lines if line.strip() != ""]
+    return load_text_lines(RAW_REDDIT_RECOMMENDATIONS_TXT)
 
 
 def run():
-    print(
-        f"Loading raw reddit recommendations from: {RAW_REDDIT_RECOMMENDATIONS_TXT_FILE_PATH}"
-    )
+    print(f"Loading raw reddit recommendations from: {RAW_REDDIT_RECOMMENDATIONS_TXT}")
     lines = load_raw_data()
     print("Processing data...")
     categories_set = get_categories(lines)
     grouped_lines = group_by_category(lines, categories_set)
     grouped_lines_with_subcategories = group_by_title(preprocess(grouped_lines))
     print("Done!")
-    with open(RAW_REDDIT_RECOMMENDATIONS_JSON_FILE_PATH, "w") as f:
-        print(f"Writing parsed data to: {RAW_REDDIT_RECOMMENDATIONS_JSON_FILE_PATH}...")
-        json.dump(grouped_lines_with_subcategories, f, indent=4)
+    print(f"Writing parsed data to: {RAW_REDDIT_RECOMMENDATIONS_JSON}...")
+    save_json(RAW_REDDIT_RECOMMENDATIONS_JSON, grouped_lines_with_subcategories)
 
 
 if __name__ == "__main__":

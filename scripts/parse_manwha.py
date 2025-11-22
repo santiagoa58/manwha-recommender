@@ -1,8 +1,12 @@
-import json
 from typing import Dict
 from bs4 import BeautifulSoup
 import re
-from src.utils.constants import UNKNOWN, CLEANED_MANWHAS_PATH
+import logging
+from src.utils.constants import UNKNOWN, CLEANED_MANWHAS_PATH, RAW_MANWHAS_PATH
+from src.utils.validation import validate_manwha_list
+from src.utils.file_io import load_json, save_json
+
+logger = logging.getLogger(__name__)
 
 
 def parse_number(str_number: str):
@@ -21,8 +25,8 @@ def is_str_number(str_number: str):
         parse_number(str_number)
         # no error, so it is a number
         return True
-    except Exception as _e:
-        # error, so it is not a number
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Could not parse number '{str_number}': {e}")
         return False
 
 
@@ -35,8 +39,8 @@ def clean_text(text: str | None):
     if not text:
         return UNKNOWN
     text = unidecode(text)
-    # remove non-printable characters using char for char in text if char in cleaned_text
-    cleaned_text = [char for char in text if char in text]
+    # Keep only printable ASCII characters (space through tilde)
+    cleaned_text = [char for char in text if 32 <= ord(char) <= 126]
     return "".join(cleaned_text)
 
 
@@ -67,9 +71,7 @@ def extract_manwha_info(soup: BeautifulSoup):
         manwha_alt_name_element = soup.select_one(".tooltip-alt")
         return (
             clean_text(
-                manwha_alt_name_element.text.replace("Alt title: ", "").replace(
-                    "Alt titles: ", ""
-                )
+                manwha_alt_name_element.text.replace("Alt title: ", "").replace("Alt titles: ", "")
             )
             if manwha_alt_name_element
             else UNKNOWN
@@ -109,9 +111,7 @@ def extract_manwha_info(soup: BeautifulSoup):
         # the years the manwha was active has the class "iconYear"
         # <li class='iconYear'>2018 - 2023</li>
         years_active_element = soup.select_one(".iconYear")
-        return (
-            clean_value(years_active_element.text) if years_active_element else UNKNOWN
-        )
+        return clean_value(years_active_element.text) if years_active_element else UNKNOWN
 
     def get_description():
         # the manwha description is the child of an element with the class "pure-2-3"
@@ -139,9 +139,7 @@ def extract_manwha_info(soup: BeautifulSoup):
         # the manwha tags are the li children of an element with the class "tags"
         # ex: <div class='tags'><h4>Tags</h4><ul><li>Action</li><li>Adventure</li>...</ul></div>
         tag_elements = soup.select(".tags ul li")
-        cleaned_tags = [
-            clean_text(tag_element.text) for tag_element in tag_elements if tag_element
-        ]
+        cleaned_tags = [clean_text(tag_element.text) for tag_element in tag_elements if tag_element]
         return [tag for tag in cleaned_tags if tag != "Unknown"]
 
     return {
@@ -171,31 +169,42 @@ def parse_manwha(data: Dict[str, str]):
 
 
 def load_manwha():
-    with open("./data/rawManwhas.json") as raw_manwha:
-        print("Loading manwhas...")
-        data = json.load(raw_manwha)
-        print("manwhas loaded!")
-        print("parsing manwhas...")
-        manwhas = parse_manwha(data)
-        print("manwhas parsed!")
-        return manwhas
+    print("Loading manwhas...")
+    data = load_json(RAW_MANWHAS_PATH)
+    print("manwhas loaded!")
+    print("parsing manwhas...")
+    manwhas = parse_manwha(data)
+    print("manwhas parsed!")
+    return manwhas
 
 
 def write_manwha_to_file(manwhas):
-    with open(CLEANED_MANWHAS_PATH, "w") as cleaned_manwha:
-        print("Writing manwhas to cleanedManwhas.json...")
-        json.dump(manwhas, cleaned_manwha, indent=2)
+    print("Writing manwhas to cleanedManwhas.json...")
+    save_json(CLEANED_MANWHAS_PATH, manwhas, indent=2)
     print(f"Finished writing manwhas to {CLEANED_MANWHAS_PATH}")
 
 
 def run():
     try:
         manwhas = load_manwha()
-        write_manwha_to_file(manwhas)
+
+        # Validate the data before saving
+        print("Validating manwha data...")
+        try:
+            validated_data = validate_manwha_list(manwhas)
+            logger.info(f"Validated {len(validated_data)} manwhas")
+
+            # Convert back to dicts for saving
+            final_data = [m.to_dict() for m in validated_data]
+            write_manwha_to_file(final_data)
+        except ValueError as e:
+            logger.error(f"Data validation failed: {e}")
+            raise
+
         print("Done!")
     except Exception as e:
-        print(f"Error parsing manwhas\n")
-        raise e
+        logger.error(f"Error parsing manwhas: {e}", exc_info=True)
+        raise RuntimeError("Failed to parse manwhas") from e
 
 
 if __name__ == "__main__":

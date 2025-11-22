@@ -1,3 +1,4 @@
+# Existing dependencies
 appdirs==1.4.4
 arrow==1.2.3
 beautifulsoup4==4.12.2
@@ -58,3 +59,15 @@ urllib3==2.0.4
 virtualenv==20.23.0
 webcolors==1.13
 webencodings==0.5.1
+
+# New dependencies for enhanced data collection
+httpx==0.25.2              # Async HTTP client for API calls
+gql==3.4.1                 # GraphQL client for AniList
+aiohttp==3.9.1             # Async HTTP for multiple API calls
+tenacity==8.2.3            # Retry logic for API calls
+rapidfuzz==3.5.2           # Fast fuzzy matching for deduplication
+pydantic==2.5.3            # Data validation
+fastapi==0.109.0           # Web framework for API backend
+uvicorn==0.27.0            # ASGI server
+python-multipart==0.0.6    # Form data parsing for FastAPI
+jinja2==3.1.3              # Template engine

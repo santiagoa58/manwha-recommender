@@ -13,9 +13,7 @@ def print_manwha_info(manwha_name_df: DataFrame):
     for _, row in manwha_name_df.iterrows():
         alt_name = row["altName"]
         name = (
-            f'{row["name"]} (AKA: {alt_name})'
-            if alt_name and alt_name != UNKNOWN
-            else row["name"]
+            f'{row["name"]} (AKA: {alt_name})' if alt_name and alt_name != UNKNOWN else row["name"]
         )
         chapters_and_volumes: dict = row["chapters"]
         volumes = chapters_and_volumes["volumes"]
