@@ -63,7 +63,7 @@ webencodings==0.5.1
 # New dependencies for enhanced data collection
 httpx==0.25.2              # Async HTTP client for API calls
 gql==3.4.1                 # GraphQL client for AniList
-aiohttp==3.9.1             # Async HTTP for multiple API calls
+aiohttp==3.13.3             # Async HTTP for multiple API calls
 tenacity==8.2.3            # Retry logic for API calls
 rapidfuzz==3.5.2           # Fast fuzzy matching for deduplication
 pydantic==2.5.3            # Data validation
